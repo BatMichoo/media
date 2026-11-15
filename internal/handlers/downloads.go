@@ -19,9 +19,9 @@ const maxTorrent = 10 << 20
 
 // addForm is what the Add page shows (again, after an error).
 type addForm struct {
-	Lang                     string
+	Lang                      string
 	Magnet, Kind, Title, Year string
-	Error                    string
+	Error                     string
 }
 
 func (h *web) getAdd(c *gin.Context) {

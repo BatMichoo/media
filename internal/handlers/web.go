@@ -65,7 +65,7 @@ func NewWebRouter(d Deps) (*gin.Engine, error) {
 var funcs = template.FuncMap{
 	"t": i18n.T,
 	// pct is a 0..1 fraction as a whole percentage.
-	"pct": func(f float64) int { return int(math.Round(f * 100)) },
+	"pct":   func(f float64) int { return int(math.Round(f * 100)) },
 	"clock": clock,
 	// rate is bytes per second in words.
 	"rate": func(b int64) string {
