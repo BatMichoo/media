@@ -1,5 +1,11 @@
 /* The media app's own layout, built on the theme's tokens. */
-.media-page { max-width: 80rem; margin: 1.5rem auto; padding: 0 1rem; text-align: left; }
+/* #content is a flex column: without a width, auto margins shrink a page
+   to its content. */
+.media-page { width: 100%; max-width: 80rem; margin: 1.5rem auto; padding: 0 1rem; text-align: left; box-sizing: border-box; }
+/* Links that look like the theme's buttons. */
+a.btn-primary { display: inline-block; color: var(--text-sec); font-weight: 700; text-decoration: none;
+  border: 2px solid transparent; border-radius: 0.5em; box-shadow: var(--shadow); }
+a.btn-primary:hover { border-color: var(--highlight-sec); }
 .media-page.narrow { max-width: 36rem; }
 .media-page h1 { font-size: 1.6rem; color: var(--text); margin-bottom: 1rem; }
 .media-page h2 { font-size: 1.2rem; color: var(--text); }
@@ -90,6 +96,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .player-toggle { font-size: 1.3rem; min-width: 3rem; }
 .player-seek { width: 100%; accent-color: var(--accent); }
 .player-time { font-variant-numeric: tabular-nums; }
+.player-select[hidden] { display: none; }
 .player-select { display: flex; gap: 0.4rem; align-items: center; }
 .player-select select { background: rgb(255 255 255 / 0.12); color: #fff; border: 0; border-radius: var(--radius); padding: 0.4rem; }
 .player-select option { color: #000; }

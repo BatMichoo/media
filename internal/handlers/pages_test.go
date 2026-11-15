@@ -230,6 +230,12 @@ func TestDownloadsPage(t *testing.T) {
 	assert.Contains(t, rows.Eq(2).Text(), "Seeding done")
 	assert.Contains(t, rows.Eq(3).Text(), "Failed")
 	assert.Contains(t, rows.Eq(3).Text(), "no video files")
+	// The sheet's content goes inside the dialog, never replacing it.
+	doc.Find(`[hx-target="#sheet"]`).Each(func(_ int, b *goquery.Selection) {
+		swap, _ := b.Attr("hx-swap")
+		assert.Equal(t, "innerHTML", swap)
+	})
+	assert.Equal(t, 8, doc.Find(`[hx-target="#sheet"]`).Length())
 	poll, _ := doc.Find("#downloads-list").Attr("hx-trigger")
 	assert.Equal(t, "every 5s", poll)
 

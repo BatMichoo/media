@@ -31,8 +31,8 @@
         {{ if .AddedByName }}<span class="added-by">{{ printf (t .Lang "downloads.added_by") .AddedByName }}</span>{{ end }}
       </div>
       <div class="download-actions">
-        <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/edit" hx-target="#sheet">{{ t .Lang "edit" }}</button>
-        <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/remove" hx-target="#sheet">{{ t .Lang "remove" }}</button>
+        <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/edit" hx-target="#sheet" hx-swap="innerHTML">{{ t .Lang "edit" }}</button>
+        <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/remove" hx-target="#sheet" hx-swap="innerHTML">{{ t .Lang "remove" }}</button>
       </div>
     </li>
     {{ end }}
