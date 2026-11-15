@@ -113,3 +113,16 @@ func TestCheckLinkableFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "filesystem")
 }
+
+func TestApplyOwnLinkCounted(t *testing.T) {
+	// A crash after linking but before recording: the next round finds its
+	// own link (same file) and reports it, so it gets recorded.
+	dir := t.TempDir()
+	write(t, dir, "downloads/a.mkv")
+	l := []Link{{"downloads/a.mkv", "library/Movies/A/A.mkv"}}
+	_, err := Apply(dir, l)
+	require.NoError(t, err)
+	made, err := Apply(dir, l)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"library/Movies/A/A.mkv"}, made)
+}

@@ -12,13 +12,17 @@ import (
 )
 
 // Apply makes the hard links, creating folders as needed. A destination
-// that already exists is left alone and not reported as made. On the
-// first other error it stops; the links made so far are still returned,
-// so the caller can record or undo them.
+// that already exists is left alone: reported as made only when it is
+// already this very file (our own link from an interrupted round), never
+// when it's another file. On the first other error it stops; the links
+// made so far are still returned, so the caller can record or undo them.
 func Apply(dataDir string, links []Link) (made []string, err error) {
 	for _, l := range links {
 		dst := filepath.Join(dataDir, filepath.FromSlash(l.To))
-		if _, err := os.Lstat(dst); err == nil {
+		if have, err := os.Lstat(dst); err == nil {
+			if src, err := os.Stat(filepath.Join(dataDir, filepath.FromSlash(l.From))); err == nil && os.SameFile(src, have) {
+				made = append(made, l.To)
+			}
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {

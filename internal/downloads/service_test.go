@@ -1,0 +1,423 @@
+package downloads
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/BatMichoo/media/internal/db/dbtest"
+	"github.com/BatMichoo/media/internal/library"
+	"github.com/BatMichoo/media/internal/model"
+	"github.com/BatMichoo/media/internal/transmission"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+const GB = int64(1) << 30
+
+// fakeTorrents is Transmission in memory.
+type fakeTorrents struct {
+	mu       sync.Mutex
+	torrents map[string]transmission.Torrent
+	adds     int
+	removed  map[string]bool // hash -> deleteData
+	stopped  []string
+	nextHash string
+	getErr   error
+}
+
+func newFakeTorrents() *fakeTorrents {
+	return &fakeTorrents{torrents: map[string]transmission.Torrent{}, removed: map[string]bool{}, nextHash: "h1"}
+}
+
+func (f *fakeTorrents) Add(_ context.Context, magnet string, file []byte, dir string) (string, string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.adds++
+	h := f.nextHash
+	_, dup := f.torrents[h]
+	if !dup {
+		f.torrents[h] = transmission.Torrent{Hash: h, Name: "Torrent " + h}
+	}
+	return h, "Torrent " + h, dup, nil
+}
+
+func (f *fakeTorrents) Get(_ context.Context, hashes []string) (map[string]transmission.Torrent, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	out := map[string]transmission.Torrent{}
+	for _, h := range hashes {
+		if t, ok := f.torrents[h]; ok {
+			out[h] = t
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeTorrents) Remove(_ context.Context, hash string, deleteData bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.removed[hash] = deleteData
+	delete(f.torrents, hash)
+	return nil
+}
+
+func (f *fakeTorrents) Stop(_ context.Context, hash string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stopped = append(f.stopped, hash)
+	t := f.torrents[hash]
+	t.Stopped = true
+	f.torrents[hash] = t
+	return nil
+}
+
+func (f *fakeTorrents) set(t transmission.Torrent) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.torrents[t.Hash] = t
+}
+
+type fakeLibrary struct{ refreshes int }
+
+func (l *fakeLibrary) Refresh(context.Context) error { l.refreshes++; return nil }
+
+type env struct {
+	s   *Service
+	t   *fakeTorrents
+	lib *fakeLibrary
+	dir string
+	now time.Time
+}
+
+func newEnv(t *testing.T) *env {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, library.CheckLinkable(dir))
+	e := &env{t: newFakeTorrents(), lib: &fakeLibrary{}, dir: dir, now: time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)}
+	e.s = New(dbtest.New(t), e.t, e.lib, dir)
+	e.s.Now = func() time.Time { return e.now }
+	return e
+}
+
+var alice = model.User{ID: "6f1c2d3e-0000-4000-8000-000000000001", Name: "Alice"}
+
+func (e *env) file(t *testing.T, rel string) transmission.File {
+	t.Helper()
+	p := filepath.Join(e.dir, "downloads", rel)
+	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+	require.NoError(t, os.WriteFile(p, []byte(rel), 0o644))
+	return transmission.File{Name: rel, Length: 2 * GB}
+}
+
+func (e *env) exists(rel string) bool {
+	_, err := os.Lstat(filepath.Join(e.dir, rel))
+	return err == nil
+}
+
+func (e *env) addMovie(t *testing.T, hash, title string, year int) {
+	t.Helper()
+	e.t.nextHash = hash
+	_, _, err := e.s.Add(context.Background(), alice, AddInput{Magnet: "magnet:?xt=urn:btih:" + hash, Kind: "movie", Title: title, Year: year})
+	require.NoError(t, err)
+}
+
+func (e *env) finish(t *testing.T, hash string, files ...transmission.File) {
+	t.Helper()
+	e.t.set(transmission.Torrent{Hash: hash, Name: "Torrent " + hash, PercentDone: 1, Files: files, DoneDate: e.now})
+}
+
+func (e *env) get(t *testing.T, hash string) Download {
+	t.Helper()
+	list, err := e.s.List(context.Background())
+	require.NoError(t, err)
+	for _, d := range list {
+		if d.Hash == hash {
+			return d
+		}
+	}
+	t.Fatalf("no download %s", hash)
+	return Download{}
+}
+
+func TestAddRecords(t *testing.T) {
+	e := newEnv(t)
+	d, existing, err := e.s.Add(context.Background(), alice, AddInput{Magnet: "magnet:?xt=1", Kind: "movie", Title: " Dune ", Year: 2021})
+	require.NoError(t, err)
+	assert.False(t, existing)
+	assert.Equal(t, "h1", d.Hash)
+	got := e.get(t, "h1")
+	assert.Equal(t, "movie", got.Kind)
+	assert.Equal(t, "Dune", got.Title)
+	assert.Equal(t, 2021, got.Year)
+	assert.Equal(t, "Alice", got.AddedByName)
+	assert.Equal(t, "downloading", got.State)
+	assert.Equal(t, "Torrent h1", got.Name)
+}
+
+func TestAddDuplicateReturnsExisting(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	d, existing, err := e.s.Add(context.Background(), alice, AddInput{File: []byte("torrent"), Kind: "movie", Title: "Other", Year: 2000})
+	require.NoError(t, err)
+	assert.True(t, existing)
+	assert.Equal(t, "Dune", d.Title)
+	list, err := e.s.List(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+}
+
+func TestAddValidation(t *testing.T) {
+	e := newEnv(t)
+	for name, in := range map[string]AddInput{
+		"nothing":       {Kind: "movie", Title: "X", Year: 2000},
+		"both":          {Magnet: "magnet:?x", File: []byte("x"), Kind: "movie", Title: "X", Year: 2000},
+		"not a magnet":  {Magnet: "http://x", Kind: "movie", Title: "X", Year: 2000},
+		"kind":          {Magnet: "magnet:?x", Kind: "music", Title: "X", Year: 2000},
+		"empty title":   {Magnet: "magnet:?x", Kind: "movie", Title: "???", Year: 2000},
+		"movie no year": {Magnet: "magnet:?x", Kind: "movie", Title: "X"},
+		"year too old":  {Magnet: "magnet:?x", Kind: "series", Title: "X", Year: 1700},
+		"year too new":  {Magnet: "magnet:?x", Kind: "movie", Title: "X", Year: 2200},
+	} {
+		_, _, err := e.s.Add(context.Background(), alice, in)
+		assert.ErrorIs(t, err, ErrInvalid, name)
+		var ie *InvalidError
+		assert.True(t, errors.As(err, &ie), name)
+	}
+	assert.Equal(t, 0, e.t.adds, "nothing sent to Transmission")
+	// A series may leave the year out.
+	_, _, err := e.s.Add(context.Background(), alice, AddInput{Magnet: "magnet:?x", Kind: "series", Title: "S"})
+	assert.NoError(t, err)
+}
+
+func TestPollFilesMovie(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	require.NoError(t, e.s.Poll(context.Background()))
+	assert.Equal(t, "downloading", e.get(t, "h1").State)
+	assert.Equal(t, 0, e.lib.refreshes)
+
+	e.finish(t, "h1", e.file(t, "D/Dune.mkv"), e.file(t, "D/Dune.en.srt"))
+	require.NoError(t, e.s.Poll(context.Background()))
+	d := e.get(t, "h1")
+	assert.Equal(t, "filed", d.State)
+	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).mkv"))
+	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).en.srt"))
+	links, err := e.s.store.Links(context.Background(), "h1")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"library/Movies/Dune (2021)/Dune (2021).mkv", "library/Movies/Dune (2021)/Dune (2021).en.srt"}, links)
+	assert.Equal(t, 1, e.lib.refreshes)
+
+	// Filed stays filed; no more refreshes.
+	require.NoError(t, e.s.Poll(context.Background()))
+	assert.Equal(t, 1, e.lib.refreshes)
+}
+
+func TestPollRemovedExternally(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	delete(e.t.torrents, "h1")
+	require.NoError(t, e.s.Poll(context.Background()))
+	d := e.get(t, "h1")
+	assert.Equal(t, "failed", d.State)
+	assert.Equal(t, "removed from Transmission", d.Reason)
+}
+
+func TestPollTransmissionError(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", Error: "No data found"})
+	require.NoError(t, e.s.Poll(context.Background()))
+	d := e.get(t, "h1")
+	assert.Equal(t, "downloading", d.State)
+	assert.Equal(t, "No data found", d.Reason)
+}
+
+func TestPollNoVideo(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.finish(t, "h1", e.file(t, "D/readme.txt"))
+	require.NoError(t, e.s.Poll(context.Background()))
+	d := e.get(t, "h1")
+	assert.Equal(t, "failed", d.State)
+	assert.Equal(t, "no video files", d.Reason)
+	assert.Equal(t, 0, e.lib.refreshes)
+}
+
+func TestPollLinkFailure(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	// The listed file isn't on disk: linking fails.
+	e.finish(t, "h1", transmission.File{Name: "D/Dune.mkv", Length: 2 * GB})
+	require.NoError(t, e.s.Poll(context.Background()))
+	d := e.get(t, "h1")
+	assert.Equal(t, "failed", d.State)
+	assert.Contains(t, d.Reason, "link")
+}
+
+func TestPollResumesAfterCrash(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	f := e.file(t, "D/Dune.mkv")
+	// An earlier round linked the movie, then the app stopped before
+	// recording it.
+	_, err := library.Apply(e.dir, []library.Link{{From: "downloads/D/Dune.mkv", To: "library/Movies/Dune (2021)/Dune (2021).mkv"}})
+	require.NoError(t, err)
+	e.finish(t, "h1", f)
+	require.NoError(t, e.s.Poll(context.Background()))
+	assert.Equal(t, "filed", e.get(t, "h1").State)
+	links, err := e.s.store.Links(context.Background(), "h1")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"library/Movies/Dune (2021)/Dune (2021).mkv"}, links)
+}
+
+func TestPollTransmissionDown(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.getErr = errors.New("connection refused")
+	assert.Error(t, e.s.Poll(context.Background()))
+	list, err := e.s.List(context.Background())
+	assert.Error(t, err, "list says Transmission is unreachable")
+	require.Len(t, list, 1, "but still lists what was added")
+	assert.Equal(t, "Dune", list[0].Title)
+}
+
+func TestRemoveDeleteFiles(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.finish(t, "h1", e.file(t, "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(context.Background()))
+	require.NoError(t, e.s.Remove(context.Background(), "h1", true))
+	assert.Equal(t, map[string]bool{"h1": true}, e.t.removed)
+	assert.False(t, e.exists("library/Movies/Dune (2021)"))
+	list, err := e.s.List(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, list)
+	assert.Equal(t, 2, e.lib.refreshes)
+}
+
+func TestRemoveKeepFiles(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.finish(t, "h1", e.file(t, "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(context.Background()))
+	require.NoError(t, e.s.Remove(context.Background(), "h1", false))
+	assert.Equal(t, map[string]bool{"h1": false}, e.t.removed)
+	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).mkv"))
+	list, _ := e.s.List(context.Background())
+	assert.Empty(t, list)
+}
+
+func TestRemoveUnknown(t *testing.T) {
+	e := newEnv(t)
+	assert.ErrorIs(t, e.s.Remove(context.Background(), "nope", true), ErrNotFound)
+}
+
+func TestRemoveSharedShowFolder(t *testing.T) {
+	e := newEnv(t)
+	for i, h := range []string{"s1", "s2"} {
+		e.t.nextHash = h
+		_, _, err := e.s.Add(context.Background(), alice, AddInput{Magnet: "magnet:?x" + h, Kind: "series", Title: "Severance"})
+		require.NoError(t, err)
+		// Both packs contain a file of the same name in the same place.
+		name := []string{"S/Severance.S01E01.mkv", "S/Severance.S01E01.mkv"}[i]
+		e.finish(t, h, e.file(t, h+"/"+name))
+	}
+	// Different torrent folders: s1/S/..., s2/S/... — so both get filed.
+	require.NoError(t, e.s.Poll(context.Background()))
+	assert.True(t, e.exists("library/Shows/Severance/s1/S/Severance.S01E01.mkv"))
+	assert.True(t, e.exists("library/Shows/Severance/s2/S/Severance.S01E01.mkv"))
+	require.NoError(t, e.s.Remove(context.Background(), "s2", true))
+	assert.True(t, e.exists("library/Shows/Severance/s1/S/Severance.S01E01.mkv"), "the other download's file stays")
+	assert.False(t, e.exists("library/Shows/Severance/s2"))
+}
+
+func TestRemoveNeverDeletesFileItDidntMake(t *testing.T) {
+	e := newEnv(t)
+	// Something already sits where the second download would go.
+	e.t.nextHash = "a"
+	_, _, err := e.s.Add(context.Background(), alice, AddInput{Magnet: "magnet:?a", Kind: "series", Title: "S"})
+	require.NoError(t, err)
+	e.finish(t, "a", e.file(t, "x/E01.mkv"))
+	require.NoError(t, e.s.Poll(context.Background()))
+	e.t.nextHash = "b"
+	_, _, err = e.s.Add(context.Background(), alice, AddInput{Magnet: "magnet:?b", Kind: "series", Title: "S"})
+	require.NoError(t, err)
+	// b's file has the same path below the show folder as a's.
+	p := filepath.Join(e.dir, "downloads", "x", "E01.mkv")
+	require.NoError(t, os.Remove(p))
+	e.finish(t, "b", e.file(t, "x/E01.mkv")) // a new file, same name
+	require.NoError(t, e.s.Poll(context.Background()))
+	links, _ := e.s.store.Links(context.Background(), "b")
+	assert.Empty(t, links, "the existing file isn't b's")
+	require.NoError(t, e.s.Remove(context.Background(), "b", true))
+	assert.True(t, e.exists("library/Shows/S/x/E01.mkv"), "a's file survives b's removal")
+}
+
+func TestEditRefiles(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2020)
+	e.finish(t, "h1", e.file(t, "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(context.Background()))
+	require.True(t, e.exists("library/Movies/Dune (2020)/Dune (2020).mkv"))
+	adds := e.t.adds
+
+	require.NoError(t, e.s.Edit(context.Background(), "h1", "movie", "Dune", 2021))
+	assert.False(t, e.exists("library/Movies/Dune (2020)"))
+	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).mkv"))
+	d := e.get(t, "h1")
+	assert.Equal(t, "filed", d.State)
+	assert.Equal(t, 2021, d.Year)
+	assert.Equal(t, adds, e.t.adds, "nothing downloaded again")
+	links, _ := e.s.store.Links(context.Background(), "h1")
+	assert.Equal(t, []string{"library/Movies/Dune (2021)/Dune (2021).mkv"}, links)
+}
+
+func TestEditWhileDownloading(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2020)
+	require.NoError(t, e.s.Edit(context.Background(), "h1", "series", "Dune Prophecy", 0))
+	d := e.get(t, "h1")
+	assert.Equal(t, "series", d.Kind)
+	assert.Equal(t, "Dune Prophecy", d.Title)
+	assert.Equal(t, "downloading", d.State)
+	assert.ErrorIs(t, e.s.Edit(context.Background(), "h1", "movie", "???", 2000), ErrInvalid)
+	assert.ErrorIs(t, e.s.Edit(context.Background(), "nope", "movie", "X", 2000), ErrNotFound)
+}
+
+func TestPollStopsAfter72h(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "old", "Old", 2000)
+	e.addMovie(t, "young", "Young", 2000)
+	e.addMovie(t, "done", "Done", 2000)
+	e.t.set(transmission.Torrent{Hash: "old", PercentDone: 1, Files: []transmission.File{e.file(t, "o/o.mkv")}, DoneDate: e.now.Add(-72*time.Hour - time.Minute)})
+	e.t.set(transmission.Torrent{Hash: "young", PercentDone: 1, Files: []transmission.File{e.file(t, "y/y.mkv")}, DoneDate: e.now.Add(-71 * time.Hour)})
+	e.t.set(transmission.Torrent{Hash: "done", PercentDone: 1, Files: []transmission.File{e.file(t, "d/d.mkv")}, DoneDate: e.now.Add(-100 * time.Hour), Stopped: true})
+	require.NoError(t, e.s.Poll(context.Background()))
+	assert.Equal(t, []string{"old"}, e.t.stopped)
+	require.NoError(t, e.s.Poll(context.Background()))
+	assert.Equal(t, []string{"old"}, e.t.stopped, "not stopped twice")
+
+	y := e.get(t, "young")
+	assert.True(t, y.SeedingUntil.Equal(e.now.Add(time.Hour)))
+	assert.False(t, y.SeedingDone)
+	assert.True(t, e.get(t, "old").SeedingDone)
+	assert.True(t, e.get(t, "done").SeedingDone)
+}
+
+func TestListLiveProgress(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.25, RateDownload: 5000})
+	d := e.get(t, "h1")
+	assert.Equal(t, 0.25, d.Percent)
+	assert.Equal(t, int64(5000), d.RateDownload)
+	assert.True(t, d.SeedingUntil.IsZero())
+}
