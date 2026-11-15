@@ -26,8 +26,8 @@ var (
 	streamPath = regexp.MustCompile(`^/[Vv]ideos/` + jfID + `/(` +
 		`stream(\.[a-z0-9]+)?|master\.m3u8|main\.m3u8|hls1/[A-Za-z0-9_]+/-?[0-9]+\.(mp4|ts|m4s|aac)|` +
 		jfID + `/Subtitles/[0-9]+/[0-9]+/Stream\.vtt)$`)
-	itemID     = regexp.MustCompile(`^[0-9a-f]{32}$`)
-	uriAttr    = regexp.MustCompile(`URI="([^"]*)"`)
+	itemID  = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	uriAttr = regexp.MustCompile(`URI="([^"]*)"`)
 
 	forwardRequest  = []string{"Range", "If-Range", "Accept"}
 	forwardResponse = []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges",

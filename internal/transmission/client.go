@@ -39,7 +39,7 @@ type File struct {
 type Torrent struct {
 	Hash, Name   string
 	PercentDone  float64
-	RateDownload int64 // bytes per second
+	RateDownload int64  // bytes per second
 	Error        string // Transmission's message, "" when fine
 	LocalError   bool   // a problem with the data itself (not a tracker warning)
 	Files        []File
