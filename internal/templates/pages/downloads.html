@@ -23,7 +23,10 @@
       <div class="download-info">
         {{ if eq .State "downloading" }}
         <div class="bar"><span style="width: {{ pct .Percent }}%"></span></div>
-        <span>{{ pct .Percent }}%</span>{{ if .RateDownload }} · <span>{{ rate .RateDownload }}</span>{{ end }}
+        <span>{{ pct .Percent }}%</span>
+        {{- if .Size }} · <span>{{ printf (t .Lang "downloads.size") (size .Done) (size .Size) }}</span>{{ end }}
+        {{- if .RateDownload }} · <span>{{ rate .RateDownload }}</span>{{ end }}
+        {{- if .ETA }} · <span>{{ printf (t .Lang "downloads.time_left") (timeLeft .Lang .ETA) }}</span>{{ end }}
         {{ end }}
         {{ if .SeedingDone }}<span>{{ t .Lang "downloads.seeding_done" }}</span>
         {{ else if not .SeedingUntil.IsZero }}<span>{{ printf (t .Lang "downloads.seeding_until") (when .SeedingUntil) }}</span>{{ end }}

@@ -67,8 +67,10 @@ type Download struct {
 	Name, AddedByName string
 	AddedAt           time.Time
 	State, Reason     string
-	Percent           float64 // 0..1
-	RateDownload      int64   // bytes per second
+	Percent           float64       // 0..1
+	RateDownload      int64         // bytes per second
+	Size, Done        int64         // bytes in all and so far (Size 0 = not known yet)
+	ETA               time.Duration // time left; 0 = not known
 	SeedingUntil      time.Time
 	SeedingDone       bool
 }
@@ -198,6 +200,7 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 		}
 		out[i].Percent = t.PercentDone
 		out[i].RateDownload = t.RateDownload
+		out[i].Size, out[i].Done, out[i].ETA = t.Size, t.Size-t.Left, t.ETA
 		if !t.DoneDate.IsZero() {
 			out[i].SeedingUntil = t.DoneDate.Add(s.SeedFor)
 			out[i].SeedingDone = t.Stopped

@@ -39,9 +39,12 @@ type File struct {
 type Torrent struct {
 	Hash, Name   string
 	PercentDone  float64
-	RateDownload int64  // bytes per second
-	Error        string // Transmission's message, "" when fine
-	LocalError   bool   // a problem with the data itself (not a tracker warning)
+	RateDownload int64         // bytes per second
+	Size         int64         // bytes to download in all (0 until a magnet's details arrive)
+	Left         int64         // bytes still to download
+	ETA          time.Duration // time left; 0 when Transmission can't tell
+	Error        string        // Transmission's message, "" when fine
+	LocalError   bool          // a problem with the data itself (not a tracker warning)
 	Files        []File
 	DoneDate     time.Time // zero until it finished downloading
 	Stopped      bool
@@ -77,7 +80,7 @@ func (c *Client) Add(ctx context.Context, magnet string, torrentFile []byte, dow
 }
 
 var getFields = []string{"hashString", "name", "percentDone", "rateDownload", "error",
-	"errorString", "files", "doneDate", "status"}
+	"errorString", "files", "doneDate", "status", "sizeWhenDone", "leftUntilDone", "eta"}
 
 // Get returns the torrents with these hashes; unknown ones are absent.
 func (c *Client) Get(ctx context.Context, hashes []string) (map[string]Torrent, error) {
@@ -97,11 +100,16 @@ func (c *Client) Get(ctx context.Context, hashes []string) (map[string]Torrent, 
 			Name:         t.Name,
 			PercentDone:  t.PercentDone,
 			RateDownload: t.RateDownload,
+			Size:         t.SizeWhenDone,
+			Left:         t.LeftUntilDone,
 			Stopped:      t.Status == 0,
 		}
 		if t.Error != 0 {
 			// 1 and 2 are tracker warnings and errors; 3 is local.
 			tor.Error, tor.LocalError = t.ErrorString, t.Error == 3
+		}
+		if t.ETA > 0 {
+			tor.ETA = time.Duration(t.ETA) * time.Second
 		}
 		if t.DoneDate > 0 {
 			tor.DoneDate = time.Unix(t.DoneDate, 0)
@@ -144,15 +152,18 @@ func (c *Client) ConfigureSession(ctx context.Context, downloadDir string) error
 }
 
 type rpcTorrent struct {
-	HashString   string  `json:"hashString"`
-	Name         string  `json:"name"`
-	PercentDone  float64 `json:"percentDone"`
-	RateDownload int64   `json:"rateDownload"`
-	Error        int     `json:"error"`
-	ErrorString  string  `json:"errorString"`
-	DoneDate     int64   `json:"doneDate"`
-	Status       int     `json:"status"`
-	Files        []struct {
+	HashString    string  `json:"hashString"`
+	Name          string  `json:"name"`
+	PercentDone   float64 `json:"percentDone"`
+	RateDownload  int64   `json:"rateDownload"`
+	SizeWhenDone  int64   `json:"sizeWhenDone"`
+	LeftUntilDone int64   `json:"leftUntilDone"`
+	ETA           int64   `json:"eta"` // seconds; -1 and -2 when unknown
+	Error         int     `json:"error"`
+	ErrorString   string  `json:"errorString"`
+	DoneDate      int64   `json:"doneDate"`
+	Status        int     `json:"status"`
+	Files         []struct {
 		Name   string `json:"name"`
 		Length int64  `json:"length"`
 	} `json:"files"`

@@ -135,10 +135,10 @@ func TestGetFields(t *testing.T) {
 	f := &fake{reply: func(call) map[string]any {
 		return ok(map[string]any{"torrents": []any{
 			map[string]any{"hashString": "AAA", "name": "a", "percentDone": 0.5, "rateDownload": 1000,
-				"error": 0, "errorString": "", "doneDate": 0, "status": 4,
+				"sizeWhenDone": 4000, "leftUntilDone": 1000, "eta": 90, "error": 0, "errorString": "", "doneDate": 0, "status": 4,
 				"files": []any{map[string]any{"name": "a/a.mkv", "length": 42}}},
 			map[string]any{"hashString": "bbb", "name": "b", "percentDone": 1.0, "rateDownload": 0,
-				"error": 3, "errorString": "No data found", "doneDate": done.Unix(), "status": 0,
+				"sizeWhenDone": 0, "leftUntilDone": 0, "eta": -1, "error": 3, "errorString": "No data found", "doneDate": done.Unix(), "status": 0,
 				"files": []any{}},
 		}})
 	}}
@@ -147,17 +147,23 @@ func TestGetFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []any{"aaa", "bbb", "ccc"}, f.calls[0].Arguments["ids"])
 	assert.ElementsMatch(t, []any{"hashString", "name", "percentDone", "rateDownload", "error",
-		"errorString", "files", "doneDate", "status"}, f.calls[0].Arguments["fields"])
+		"errorString", "files", "doneDate", "status", "sizeWhenDone", "leftUntilDone", "eta"},
+		f.calls[0].Arguments["fields"])
 	assert.Len(t, got, 2)
 	a := got["aaa"]
 	assert.Equal(t, 0.5, a.PercentDone)
 	assert.Equal(t, int64(1000), a.RateDownload)
+	assert.Equal(t, int64(4000), a.Size)
+	assert.Equal(t, int64(1000), a.Left)
+	assert.Equal(t, 90*time.Second, a.ETA)
 	assert.True(t, a.DoneDate.IsZero())
 	assert.False(t, a.Stopped)
 	assert.Equal(t, "", a.Error)
 	assert.Equal(t, []File{{Name: "a/a.mkv", Length: 42}}, a.Files)
 	b := got["bbb"]
 	assert.True(t, b.Stopped)
+	// -1 and -2 mean Transmission can't tell.
+	assert.Equal(t, time.Duration(0), b.ETA)
 	assert.True(t, b.DoneDate.Equal(done))
 	assert.Equal(t, "No data found", b.Error)
 	_, has := got["ccc"]

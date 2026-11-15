@@ -467,10 +467,14 @@ func TestPollStopsAfter72h(t *testing.T) {
 func TestListLiveProgress(t *testing.T) {
 	e := newEnv(t)
 	e.addMovie(t, "h1", "Dune", 2021)
-	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.25, RateDownload: 5000})
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.25, RateDownload: 5000,
+		Size: 4000, Left: 3000, ETA: 2 * time.Minute})
 	d := e.get(t, "h1")
 	assert.Equal(t, 0.25, d.Percent)
 	assert.Equal(t, int64(5000), d.RateDownload)
+	assert.Equal(t, int64(4000), d.Size)
+	assert.Equal(t, int64(1000), d.Done)
+	assert.Equal(t, 2*time.Minute, d.ETA)
 	assert.True(t, d.SeedingUntil.IsZero())
 }
 

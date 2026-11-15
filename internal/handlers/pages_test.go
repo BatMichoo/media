@@ -215,7 +215,8 @@ func TestDownloadsPage(t *testing.T) {
 	a := newApp(t)
 	until := time.Date(2026, 11, 18, 9, 30, 0, 0, time.Local)
 	a.dl.list = []downloads.Download{
-		{Hash: "a1", Kind: "movie", Title: "Dune", Year: 2021, State: "downloading", Percent: 0.42, RateDownload: 1_500_000, AddedByName: "Alice"},
+		{Hash: "a1", Kind: "movie", Title: "Dune", Year: 2021, State: "downloading", Percent: 0.42, RateDownload: 1_500_000, AddedByName: "Alice",
+			Size: 4_500_000_000, Done: 1_900_000_000, ETA: 75 * time.Minute},
 		{Hash: "b2", Kind: "series", Title: "Severance", State: "filed", SeedingUntil: until, AddedByName: "Bob"},
 		{Hash: "c3", Kind: "movie", Title: "Old", Year: 1999, State: "filed", SeedingUntil: until, SeedingDone: true},
 		{Hash: "d4", Kind: "movie", Title: "Bad", Year: 2000, State: "failed", Reason: "no video files"},
@@ -226,6 +227,8 @@ func TestDownloadsPage(t *testing.T) {
 	assert.Contains(t, rows.Eq(0).Text(), "Dune (2021)")
 	assert.Contains(t, rows.Eq(0).Text(), "42%")
 	assert.Contains(t, rows.Eq(0).Text(), "1.5 MB/s")
+	assert.Contains(t, rows.Eq(0).Text(), "1.9 GB of 4.5 GB")
+	assert.Contains(t, rows.Eq(0).Text(), "1 h 15 min left")
 	assert.Contains(t, rows.Eq(0).Text(), "Added by Alice")
 	assert.Contains(t, rows.Eq(1).Text(), "Seeding until 18 Nov 09:30")
 	assert.Contains(t, rows.Eq(2).Text(), "Seeding done")
@@ -245,6 +248,32 @@ func TestDownloadsPage(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, 0, doc.Find("header").Length())
 	assert.Equal(t, 4, doc.Find(".download").Length())
+}
+
+func TestDownloadsUnknownSizeAndTime(t *testing.T) {
+	// A magnet link before its details arrive: no size, no time left.
+	a := newApp(t)
+	a.dl.list = []downloads.Download{{Hash: "a1", Kind: "movie", Title: "Dune", Year: 2021, State: "downloading"}}
+	_, doc := a.get(t, "/downloads")
+	text := doc.Find(".download").Text()
+	assert.NotContains(t, text, " of ")
+	assert.NotContains(t, text, "left")
+}
+
+func TestSizeWords(t *testing.T) {
+	assert.Equal(t, "512 B", sizeWords(512))
+	assert.Equal(t, "12 kB", sizeWords(12_345))
+	assert.Equal(t, "700 MB", sizeWords(700_400_000))
+	assert.Equal(t, "4.5 GB", sizeWords(4_500_000_000))
+}
+
+func TestTimeLeftWords(t *testing.T) {
+	assert.Equal(t, "1 min", timeLeft("en", 10*time.Second))
+	assert.Equal(t, "15 min", timeLeft("en", 14*time.Minute+30*time.Second))
+	assert.Equal(t, "2 h", timeLeft("en", 2*time.Hour))
+	assert.Equal(t, "1 h 15 min", timeLeft("en", 75*time.Minute))
+	assert.Equal(t, "3 d 4 h", timeLeft("en", 76*time.Hour+20*time.Minute))
+	assert.Equal(t, "1 ч 15 мин", timeLeft("bg", 75*time.Minute))
 }
 
 func TestDownloadsLinkWarning(t *testing.T) {

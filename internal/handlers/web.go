@@ -80,6 +80,8 @@ var funcs = template.FuncMap{
 		}
 		return fmt.Sprintf("%d B/s", b)
 	},
+	"size":         sizeWords,
+	"timeLeft":     timeLeft,
 	"when":         func(t time.Time) string { return t.Local().Format("2 Jan 15:04") },
 	"assetVersion": func() string { return staticVersion },
 }
@@ -245,4 +247,36 @@ type message struct {
 
 func isNotFound(err error) bool {
 	return errors.Is(err, errNotFound) || isJellyfinNotFound(err)
+}
+
+// sizeWords is a size in bytes in words (1 kB = 1000 bytes, as speeds).
+func sizeWords(b int64) string {
+	switch {
+	case b >= 1_000_000_000:
+		return fmt.Sprintf("%.1f GB", float64(b)/1_000_000_000)
+	case b >= 1_000_000:
+		return fmt.Sprintf("%d MB", b/1_000_000)
+	case b >= 1_000:
+		return fmt.Sprintf("%d kB", b/1_000)
+	}
+	return fmt.Sprintf("%d B", b)
+}
+
+// timeLeft is a time left in words, rounded up to the minute: "15 min",
+// "1 h 15 min", "3 d 4 h".
+func timeLeft(lang string, d time.Duration) string {
+	m := int64((d + time.Minute - 1) / time.Minute)
+	days, hours, mins := m/(24*60), m/60%24, m%60
+	part := func(key string, n int64) string { return fmt.Sprintf(i18n.T(lang, key), n) }
+	switch {
+	case days > 0 && hours > 0:
+		return part("time.days", days) + " " + part("time.hours", hours)
+	case days > 0:
+		return part("time.days", days)
+	case hours > 0 && mins > 0:
+		return part("time.hours", hours) + " " + part("time.minutes", mins)
+	case hours > 0:
+		return part("time.hours", hours)
+	}
+	return part("time.minutes", mins)
 }
