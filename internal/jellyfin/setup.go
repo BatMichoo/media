@@ -49,7 +49,7 @@ func (c *Client) wizard(ctx context.Context) error {
 		{http.MethodGet, "/Startup/User", nil},
 		{http.MethodPost, "/Startup/User", map[string]any{"Name": c.User, "Password": c.Password}},
 		{http.MethodPost, "/Startup/RemoteAccess", map[string]any{
-			"EnableRemoteAccess": true, "EnableAutomaticPortMapping": false}},
+			"EnableRemoteAccess": false, "EnableAutomaticPortMapping": false}},
 		{http.MethodPost, "/Startup/Complete", nil},
 	}
 	for _, s := range steps {

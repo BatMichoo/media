@@ -51,6 +51,7 @@ func TestWatchPageData(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(attr("data-parts")), &parts))
 	assert.Equal(t, []map[string]any{{"id": m.ID, "duration": 3000.0}, {"id": p2.ID, "duration": 3000.0}}, parts)
 	assert.Equal(t, 1, doc.Find(`script[src^="/static/media/js/player.js"]`).Length())
+	assert.Equal(t, "Dune (2021) · Media", doc.Find("title").Text())
 	assert.Equal(t, 1, doc.Find(`script[src^="/static/media/js/hls.min.js"]`).Length())
 
 	// A finished movie starts over; an explicit ?part= starts that part.
@@ -173,6 +174,9 @@ func TestProgressSavesAndReports(t *testing.T) {
 		{"item": {"x"}, "part": {"0"}, "position": {"5"}, "durations": {"100"}},
 		{"item": {vid}, "part": {"0"}, "position": {"abc"}, "durations": {"100"}},
 		{"item": {vid}, "part": {"0"}, "position": {"5"}, "durations": {"a,b"}},
+		{"item": {vid}, "part": {"0"}, "position": {"NaN"}, "durations": {"100"}},
+		{"item": {vid}, "part": {"0"}, "position": {"5"}, "durations": {"Inf"}},
+		{"item": {vid}, "part": {"0"}, "position": {"-1"}, "durations": {"100"}},
 	} {
 		w, _ := a.post(t, "/progress", bad)
 		assert.Equal(t, 400, w.Code, bad.Encode())

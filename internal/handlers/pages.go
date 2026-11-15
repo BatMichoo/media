@@ -158,7 +158,7 @@ func (h *web) movie(c *gin.Context) {
 			v.Extras = append(v.Extras, card{Href: "/watch/" + x.ID, Image: poster(x.ID), Title: x.Name})
 		}
 	}
-	h.render(c, http.StatusOK, "media/movie", "home.movies", v)
+	h.renderTitled(c, http.StatusOK, "media/movie", v.Title, v)
 }
 
 type episodeView struct {
@@ -232,7 +232,7 @@ func (h *web) show(c *gin.Context) {
 		s := &v.Seasons[len(v.Seasons)-1]
 		s.Episodes = append(s.Episodes, ev)
 	}
-	h.render(c, http.StatusOK, "media/show", "home.shows", v)
+	h.renderTitled(c, http.StatusOK, "media/show", v.Title, v)
 }
 
 func seasonName(l string, names map[int]string, n int) string {

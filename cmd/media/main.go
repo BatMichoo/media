@@ -64,9 +64,7 @@ func main() {
 
 	dl := downloads.New(database, tr, jf, cfg.DataDir)
 	w := watching.New(database, jf)
-	go retry(ctx, "jellyfin setup", func(ctx context.Context) error {
-		return jf.Setup(ctx, filepath.Join(cfg.DataDir, "library"))
-	})
+	go keepSetUp(ctx, jf, filepath.Join(cfg.DataDir, "library"))
 	go retry(ctx, "transmission settings", func(ctx context.Context) error {
 		return tr.ConfigureSession(ctx, filepath.Join(cfg.DataDir, "downloads"))
 	})
@@ -82,6 +80,25 @@ func main() {
 		os.Exit(1)
 	}
 	os.Exit(serve(ctx, cfg, router))
+}
+
+// keepSetUp sets Jellyfin up, and again whenever it stops being ready (its
+// login failed: its settings were wiped or the account changed).
+func keepSetUp(ctx context.Context, jf *jellyfin.Client, libraryRoot string) {
+	for {
+		retry(ctx, "jellyfin setup", func(ctx context.Context) error { return jf.Setup(ctx, libraryRoot) })
+		for jf.Ready() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(30 * time.Second):
+			}
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		log.Print("jellyfin: login lost, setting up again")
+	}
 }
 
 // retry runs f until it succeeds (every 10 seconds), logging the first

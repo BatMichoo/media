@@ -125,9 +125,13 @@ type placed struct {
 
 func planMovie(dir, folder string, videos, subs []file) []Link {
 	var out []placed
-	if parts, ok := numberedParts(videos); ok {
+	if parts, rest, ok := numberedParts(videos); ok {
 		for i, f := range parts {
 			out = append(out, placed{f, dir, fmt.Sprintf("%s - part%d", folder, i+1)})
+		}
+		// Anything without a part marker (a trailer, a featurette) is an extra.
+		for _, f := range rest {
+			out = append(out, placed{f, path.Join(dir, "extras"), f.stem})
 		}
 	} else {
 		main := 0
@@ -157,12 +161,9 @@ func planMovie(dir, folder string, videos, subs []file) []Link {
 	return links
 }
 
-// numberedParts orders the videos by their part marker (cd1, part2,
-// disc3, ...) when every one of them has one.
-func numberedParts(videos []file) ([]file, bool) {
-	if len(videos) < 2 {
-		return nil, false
-	}
+// numberedParts orders the videos with a part marker (cd1, part2,
+// disc3, ...) when at least two have one; rest are the others.
+func numberedParts(videos []file) (parts, rest []file, ok bool) {
 	type numbered struct {
 		f file
 		n int
@@ -171,17 +172,20 @@ func numberedParts(videos []file) ([]file, bool) {
 	for _, f := range videos {
 		m := partMarker.FindStringSubmatch(f.stem)
 		if m == nil {
-			return nil, false
+			rest = append(rest, f)
+			continue
 		}
 		n, _ := strconv.Atoi(m[2])
 		ns = append(ns, numbered{f, n})
 	}
-	sort.SliceStable(ns, func(i, j int) bool { return ns[i].n < ns[j].n })
-	out := make([]file, len(ns))
-	for i, n := range ns {
-		out[i] = n.f
+	if len(ns) < 2 {
+		return nil, nil, false
 	}
-	return out, true
+	sort.SliceStable(ns, func(i, j int) bool { return ns[i].n < ns[j].n })
+	for _, n := range ns {
+		parts = append(parts, n.f)
+	}
+	return parts, rest, true
 }
 
 // matchSubtitle finds the video a subtitle belongs to: the one whose name

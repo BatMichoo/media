@@ -117,6 +117,11 @@ func lang(c *gin.Context) string {
 // render draws a page in the theme's shell, or only its content when the
 // header's navigation loads it into #content.
 func (h *web) render(c *gin.Context, status int, content, titleKey string, data any) {
+	h.renderTitled(c, status, content, i18n.T(lang(c), titleKey), data)
+}
+
+// renderTitled is render with the page's title as it is (a movie's name).
+func (h *web) renderTitled(c *gin.Context, status int, content, title string, data any) {
 	l := lang(c)
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.Header("Cache-Control", "no-store")
@@ -130,7 +135,7 @@ func (h *web) render(c *gin.Context, status int, content, titleKey string, data 
 	app := i18n.T(l, "app")
 	page := theme.Page{
 		Lang:         l,
-		Title:        i18n.T(l, titleKey) + " · " + app,
+		Title:        title + " · " + app,
 		Mode:         theme.ModeFromRequest(c.Request),
 		CookieDomain: h.d.LanDomain,
 		Header: theme.Header{

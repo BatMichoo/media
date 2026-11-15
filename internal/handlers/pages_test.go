@@ -190,7 +190,8 @@ func TestAddValidationKeepsInput(t *testing.T) {
 	body, ct := multipartAdd(t, map[string]string{"magnet": "magnet:?xt=1", "kind": "series", "title": "???", "year": "2020"}, nil)
 	w, doc := a.postMultipart(t, "/add", body, ct)
 	assert.Equal(t, 422, w.Code)
-	assert.Equal(t, "Give a title.", strings.TrimSpace(doc.Find(".form-error").Text()))
+	assert.Contains(t, doc.Find(".form-error").Text(), "Give a title")
+	assert.Contains(t, doc.Find(".form-error").Text(), "left out", "says why ??? doesn't count")
 	v, _ := doc.Find(`input[name="title"]`).Attr("value")
 	assert.Equal(t, "???", v)
 	y, _ := doc.Find(`input[name="year"]`).Attr("value")
@@ -285,7 +286,7 @@ func TestEditSheetAndSave(t *testing.T) {
 	a.dl.editErr = &downloads.InvalidError{Key: "error.title"}
 	w, doc = a.post(t, "/downloads/a1/edit", url.Values{"kind": {"movie"}, "title": {"?"}, "year": {"2021"}}, "HX-Request", "true")
 	assert.Equal(t, "#sheet", w.Header().Get("HX-Retarget"))
-	assert.Equal(t, "Give a title.", strings.TrimSpace(doc.Find(".form-error").Text()))
+	assert.Contains(t, doc.Find(".form-error").Text(), "Give a title")
 
 	w, _ = a.get(t, "/downloads/zz/edit")
 	assert.Equal(t, 404, w.Code)
@@ -320,8 +321,16 @@ func TestLangCookie(t *testing.T) {
 	assert.Contains(t, c, "Domain=homeserver.lan")
 }
 
+func TestHomeHidesEmptyContinue(t *testing.T) {
+	a := newApp(t)
+	_, doc := a.get(t, "/")
+	assert.Equal(t, 0, doc.Find("#continue").Length())
+	assert.Equal(t, "Movies", strings.TrimSpace(doc.Find("main h2").First().Text()))
+}
+
 func TestBulgarian(t *testing.T) {
 	a := newApp(t)
+	a.w.cont = []watching.Entry{{Item: movie("Dune", "Dune (2021)", 2021)}}
 	_, doc := a.get(t, "/", "Cookie", "homeserver_lang=bg")
 	assert.Equal(t, "Продължи гледането", strings.TrimSpace(doc.Find("main h2").First().Text()))
 	lang, _ := doc.Find("html").Attr("lang")

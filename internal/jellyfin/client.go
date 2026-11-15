@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 )
 
 // ErrNotFound means Jellyfin doesn't know the item.
@@ -26,6 +27,9 @@ type Client struct {
 	HTTP                *http.Client
 	DeviceID            string // stable per install; Jellyfin ties sessions to it
 	HWAccel             string // "vaapi" (default, Intel GPU) or "none" (CPU only)
+	// APITimeout bounds each JSON call (not streams), so a stuck Jellyfin
+	// doesn't hold pages; 0 means 30 seconds.
+	APITimeout time.Duration
 
 	mu     sync.Mutex
 	token  string
@@ -64,6 +68,10 @@ func (c *Client) Login(ctx context.Context) error {
 	}
 	body := map[string]any{"Username": c.User, "Pw": c.Password}
 	if err := c.send(ctx, http.MethodPost, "/Users/AuthenticateByName", body, &out, false); err != nil {
+		// The account may be gone (Jellyfin's settings wiped): set up again.
+		c.mu.Lock()
+		c.ready = false
+		c.mu.Unlock()
 		return fmt.Errorf("jellyfin login: %w", err)
 	}
 	if out.AccessToken == "" {
@@ -111,6 +119,12 @@ func (c *Client) raw(ctx context.Context, method, path string, body []byte, h ht
 // send makes a JSON request and decodes a JSON answer into out (if not
 // nil). With relogin, a 401 leads to one new login and one retry.
 func (c *Client) send(ctx context.Context, method, path string, in, out any, relogin bool) error {
+	timeout := c.APITimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	var body []byte
 	if in != nil {
 		var err error

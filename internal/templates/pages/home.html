@@ -6,8 +6,6 @@
   {{ else }}
   {{ if .Continue }}
   {{ template "media/row" (themeDict "Lang" .Lang "ID" "continue" "Heading" (t .Lang "home.continue") "Cards" .Continue) }}
-  {{ else }}
-  <section class="row" id="continue"><h2>{{ t .Lang "home.continue" }}</h2></section>
   {{ end }}
   {{ template "media/row" (themeDict "Lang" .Lang "ID" "movies" "Heading" (t .Lang "home.movies") "More" "/movies" "Cards" .Movies "Empty" (t .Lang "empty.movies")) }}
   {{ template "media/row" (themeDict "Lang" .Lang "ID" "shows" "Heading" (t .Lang "home.shows") "More" "/shows" "Cards" .Shows "Empty" (t .Lang "empty.shows")) }}

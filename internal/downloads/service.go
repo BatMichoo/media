@@ -10,6 +10,7 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BatMichoo/media/internal/db"
@@ -80,8 +81,10 @@ type AddInput struct {
 	Year        int // 0 = none (series only)
 }
 
-// Service is the downloads logic.
+// Service is the downloads logic. Poll, Add, Edit and Remove take turns,
+// so a poll round filing a download never undoes an edit made meanwhile.
 type Service struct {
+	mu      sync.Mutex
 	store   Store
 	t       Torrents
 	lib     Library
@@ -98,6 +101,8 @@ func New(store Store, t Torrents, lib Library, dataDir string) *Service {
 		SeedFor: 72 * time.Hour, Now: time.Now, Log: log.Default()}
 }
 
+const maxTitleBytes = 150
+
 // validate checks kind, title and year, and returns the cleaned title.
 func validate(kind, title string, year int) (string, error) {
 	if kind != "movie" && kind != "series" {
@@ -106,6 +111,11 @@ func validate(kind, title string, year int) (string, error) {
 	clean := library.CleanTitle(title)
 	if clean == "" {
 		return "", invalid("error.title")
+	}
+	// Folder and file names are at most 255 bytes, and a name gets the
+	// year, " - partN" and an extension added.
+	if len(clean) > maxTitleBytes {
+		return "", invalid("error.title_long")
 	}
 	if kind == "movie" && year == 0 {
 		return "", invalid("error.year_needed")
@@ -119,6 +129,8 @@ func validate(kind, title string, year int) (string, error) {
 // Add sends a torrent to Transmission and records it. existing is true
 // when the app already had this torrent; then nothing changes.
 func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Download, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	magnet := strings.TrimSpace(in.Magnet)
 	if (magnet == "") == (len(in.File) == 0) {
 		return Download{}, false, invalid("error.source")
@@ -213,6 +225,8 @@ func (s *Service) Run(ctx context.Context, every time.Duration) {
 // Poll is one round: file what finished, mark what vanished, and stop
 // seeding what has seeded long enough.
 func (s *Service) Poll(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	rows, err := s.store.ListDownloads(ctx)
 	if err != nil {
 		return err
@@ -275,15 +289,19 @@ func (s *Service) file(ctx context.Context, r db.Download, t transmission.Torren
 	if err := s.store.AddLinks(ctx, r.Hash, made); err != nil {
 		return err
 	}
-	if linkErr != nil {
+	switch {
+	case linkErr != nil:
 		r.State, r.Reason = "failed", linkErr.Error()
-	} else {
+	case len(made) == 0:
+		// Every file was there already (another copy of the same thing).
+		r.State, r.Reason = "filed", "already in the library"
+	default:
 		r.State, r.Reason = "filed", ""
 	}
 	if err := s.store.UpdateDownload(ctx, r); err != nil {
 		return err
 	}
-	if len(made) > 0 || linkErr == nil {
+	if len(made) > 0 {
 		s.refresh(ctx)
 	}
 	return nil
@@ -308,6 +326,8 @@ func (s *Service) row(ctx context.Context, hash string) (db.Download, error) {
 // Remove stops and forgets a torrent. With deleteFiles, its downloaded
 // data and the links the app made in the library go too.
 func (s *Service) Remove(ctx context.Context, hash string, deleteFiles bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	r, err := s.row(ctx, hash)
 	if err != nil {
 		return err
@@ -338,6 +358,8 @@ func (s *Service) Edit(ctx context.Context, hash, kind, title string, year int) 
 	if err != nil {
 		return err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	r, err := s.row(ctx, hash)
 	if err != nil {
 		return err

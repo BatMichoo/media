@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -84,7 +85,7 @@ func (h *web) watch(c *gin.Context) {
 	}
 	b, _ = json.Marshal(labels)
 	v.Labels = string(b)
-	h.render(c, http.StatusOK, "media/watch", "app", v)
+	h.renderTitled(c, http.StatusOK, "media/watch", v.Title, v)
 }
 
 type trackJSON struct {
@@ -256,7 +257,12 @@ func (h *web) progress(c *gin.Context) {
 		}
 		durations = append(durations, d)
 	}
-	if !itemID.MatchString(item) || (series != "" && !itemID.MatchString(series)) || err1 != nil || err2 != nil || err3 != nil {
+	finite := func(x float64) bool { return !math.IsNaN(x) && !math.IsInf(x, 0) && x >= 0 }
+	ok := finite(pos)
+	for _, d := range durations {
+		ok = ok && finite(d)
+	}
+	if !ok || !itemID.MatchString(item) || (series != "" && !itemID.MatchString(series)) || err1 != nil || err2 != nil || err3 != nil {
 		c.Status(http.StatusBadRequest)
 		return
 	}

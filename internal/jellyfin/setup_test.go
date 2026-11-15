@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,6 +65,7 @@ func TestSetupFreshServer(t *testing.T) {
 	assert.Equal(t, "US", cfg["MetadataCountryCode"])
 	assert.Equal(t, map[string]any{"Name": "media", "Password": "pw"}, f.find("POST /Startup/User").Body)
 	assert.Equal(t, false, f.find("POST /Startup/RemoteAccess").Body["EnableAutomaticPortMapping"])
+	assert.Equal(t, false, f.find("POST /Startup/RemoteAccess").Body["EnableRemoteAccess"], "only the app reaches it, over the private network")
 
 	var queries []string
 	for _, r := range f.reqs {
@@ -152,4 +154,28 @@ func TestTokenHeaderAndRelogin(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 2, logins)
+}
+
+func TestAPITimeout(t *testing.T) {
+	f, c := loggedIn(t)
+	c.APITimeout = 50 * time.Millisecond
+	f.on("GET /Items/slow", func(*http.Request, map[string]any) (int, any) {
+		time.Sleep(500 * time.Millisecond)
+		return 200, map[string]any{"Id": "slow"}
+	})
+	start := time.Now()
+	_, err := c.Item(context.Background(), "slow")
+	assert.Error(t, err)
+	assert.Less(t, time.Since(start), 400*time.Millisecond, "a stuck Jellyfin doesn't hold pages")
+}
+
+func TestLostLoginNeedsSetupAgain(t *testing.T) {
+	// Jellyfin's settings were wiped: the account is gone, logging in
+	// fails, so the app has to set it up again.
+	f, c := loggedIn(t)
+	f.on("POST /Users/AuthenticateByName", func(*http.Request, map[string]any) (int, any) { return 401, nil })
+	f.on("GET /Items/x", func(*http.Request, map[string]any) (int, any) { return 401, nil })
+	_, err := c.Item(context.Background(), "x")
+	assert.Error(t, err)
+	assert.False(t, c.Ready())
 }

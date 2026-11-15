@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,6 +30,8 @@ type fakeTorrents struct {
 	placed   map[string]string
 	nextHash string
 	getErr   error
+	gate     chan struct{} // when set, Get waits for it (to hold a poll mid-round)
+	inGet    chan struct{}
 }
 
 func newFakeTorrents() *fakeTorrents {
@@ -48,6 +51,12 @@ func (f *fakeTorrents) Add(_ context.Context, magnet string, file []byte, dir st
 }
 
 func (f *fakeTorrents) Get(_ context.Context, hashes []string) (map[string]transmission.Torrent, error) {
+	if f.gate != nil {
+		gate := f.gate
+		f.gate = nil
+		f.inGet <- struct{}{}
+		<-gate
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.getErr != nil {
@@ -463,4 +472,53 @@ func TestListLiveProgress(t *testing.T) {
 	assert.Equal(t, 0.25, d.Percent)
 	assert.Equal(t, int64(5000), d.RateDownload)
 	assert.True(t, d.SeedingUntil.IsZero())
+}
+
+func TestEditDuringPollKeepsEdit(t *testing.T) {
+	// A poll round that's filing while the title is corrected must not put
+	// the old title back.
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2020)
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	e.t.gate, e.t.inGet = make(chan struct{}), make(chan struct{})
+	gate := e.t.gate
+	polled := make(chan error)
+	go func() { polled <- e.s.Poll(context.Background()) }()
+	<-e.t.inGet // the poll is inside its Transmission call
+	edited := make(chan error)
+	go func() { edited <- e.s.Edit(context.Background(), "h1", "movie", "Dune", 2021) }()
+	time.Sleep(100 * time.Millisecond)
+	close(gate)
+	require.NoError(t, <-polled)
+	require.NoError(t, <-edited)
+	d := e.get(t, "h1")
+	assert.Equal(t, 2021, d.Year)
+	assert.Equal(t, "filed", d.State)
+	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).mkv"))
+	assert.False(t, e.exists("library/Movies/Dune (2020)"))
+}
+
+func TestPollAlreadyInLibrary(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "a", "Dune", 2021)
+	e.finish(t, "a", e.file(t, "a", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(context.Background()))
+	e.addMovie(t, "b", "Dune", 2021)
+	e.finish(t, "b", e.file(t, "b", "Other/Dune.mkv"))
+	require.NoError(t, e.s.Poll(context.Background()))
+	d := e.get(t, "b")
+	assert.Equal(t, "filed", d.State)
+	assert.Equal(t, "already in the library", d.Reason)
+}
+
+func TestAddTitleTooLong(t *testing.T) {
+	e := newEnv(t)
+	long := strings.Repeat("Ж", 101) // 202 bytes: too long for a folder name with year and part
+	_, _, err := e.s.Add(context.Background(), alice, AddInput{Magnet: "magnet:?x", Kind: "movie", Title: long, Year: 2000})
+	var ie *InvalidError
+	require.True(t, errors.As(err, &ie))
+	assert.Equal(t, "error.title_long", ie.Key)
+	assert.ErrorIs(t, e.s.Edit(context.Background(), "nope", "movie", long, 2000), ErrInvalid)
+	_, _, err = e.s.Add(context.Background(), alice, AddInput{Magnet: "magnet:?x", Kind: "movie", Title: strings.Repeat("Ж", 70), Year: 2000})
+	assert.NoError(t, err)
 }

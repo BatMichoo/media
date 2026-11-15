@@ -32,7 +32,7 @@
   "error.source": "Give a magnet link or a .torrent file, one of them.",
   "error.magnet": "A magnet link starts with magnet:?",
   "error.kind": "Pick movie or series.",
-  "error.title": "Give a title.",
+  "error.title": "Give a title. The characters / \\ : * ? \" < > | are left out of folder names, so a title of only those doesn't count.",
   "error.year_needed": "A movie needs its year.",
   "error.year": "That year doesn't look right.",
   "error.too_big": "That .torrent file is too big (10 MB at most).",
@@ -65,5 +65,6 @@
   "player.audio": "Audio",
   "player.off": "Off",
   "player.fullscreen": "Fullscreen",
-  "player.error": "This video can't be played right now."
+  "player.error": "This video can't be played right now.",
+  "error.title_long": "That title is too long for a folder name; shorten it."
 }

@@ -49,6 +49,13 @@ func TestPlan(t *testing.T) {
 				{"downloads/D/x.pt2.mkv", "library/Movies/Dune (2021)/Dune (2021) - part2.mkv"},
 				{"downloads/D/x-DISC3.mkv", "library/Movies/Dune (2021)/Dune (2021) - part3.mkv"},
 			}},
+		{"parts and an extra", "movie", "Dune", 2021,
+			[]transmission.File{f("D/Movie CD1.avi", 700*MB), f("D/Movie CD2.avi", 700*MB), f("D/Trailer.avi", 900*MB)},
+			[]Link{
+				{"downloads/D/Movie CD1.avi", "library/Movies/Dune (2021)/Dune (2021) - part1.avi"},
+				{"downloads/D/Movie CD2.avi", "library/Movies/Dune (2021)/Dune (2021) - part2.avi"},
+				{"downloads/D/Trailer.avi", "library/Movies/Dune (2021)/extras/Trailer.avi"},
+			}},
 		{"extras", "movie", "Dune", 2021,
 			[]transmission.File{f("D/Behind.the.Scenes.mkv", 300*MB), f("D/Dune.mkv", 2*GB)},
 			[]Link{
