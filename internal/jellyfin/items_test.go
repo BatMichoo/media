@@ -97,3 +97,10 @@ func TestRefresh(t *testing.T) {
 	require.NoError(t, c.Refresh(context.Background()))
 	assert.NotNil(t, f.find("POST /Library/Refresh"))
 }
+
+func TestShowTitle(t *testing.T) {
+	assert.Equal(t, "Severance (2022)", Item{Type: "Episode", SeriesName: "Severance",
+		Path: "/data/library/Shows/Severance (2022)/Show.S01/Show.S01E01.mkv"}.ShowTitle())
+	assert.Equal(t, "Severance", Item{Type: "Episode", SeriesName: "Severance", Path: "/elsewhere/x.mkv"}.ShowTitle())
+	assert.Equal(t, "", Item{Type: "Movie", Path: "/data/library/Movies/A/A.mkv"}.ShowTitle())
+}

@@ -1,0 +1,18 @@
+{{ define "media/movie" }}
+<div class="media-page detail">
+  <img class="detail-poster" src="{{ .Image }}" alt="" />
+  <div class="detail-body">
+    <h1>{{ .Title }}</h1>
+    {{ if .Item.Year }}<p class="detail-sub">{{ .Item.Year }}</p>{{ end }}
+    {{ if .Item.Overview }}<p class="overview">{{ .Item.Overview }}</p>{{ end }}
+    <a class="btn-primary play" href="/watch/{{ .Item.ID }}">{{ if .Resume }}{{ printf (t .Lang "movie.resume") (clock .Resume) }}{{ else }}{{ t .Lang "movie.play" }}{{ end }}</a>
+    {{ if .Resume }}<div class="bar"><span style="width: {{ pct .Fraction }}%"></span></div>{{ end }}
+  </div>
+</div>
+{{ if .Extras }}
+<section class="row extras">
+  <h2>{{ t .Lang "movie.extras" }}</h2>
+  <div class="row-cards">{{ range .Extras }}{{ template "media/card" . }}{{ end }}</div>
+</section>
+{{ end }}
+{{ end }}

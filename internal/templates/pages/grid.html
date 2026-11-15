@@ -1,0 +1,12 @@
+{{ define "media/grid" }}
+<div class="media-page">
+  <h1>{{ .Heading }}</h1>
+  {{ if .Unavailable }}
+  <p class="unavailable">{{ t .Lang "unavailable" }}</p>
+  {{ else if .Cards }}
+  <div class="grid">{{ range .Cards }}{{ template "media/card" . }}{{ end }}</div>
+  {{ else }}
+  <p class="empty">{{ .Empty }}</p>
+  {{ end }}
+</div>
+{{ end }}

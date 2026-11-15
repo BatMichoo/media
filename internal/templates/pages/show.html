@@ -1,0 +1,29 @@
+{{ define "media/show" }}
+<div class="media-page detail">
+  <img class="detail-poster" src="{{ .Image }}" alt="" />
+  <div class="detail-body">
+    <h1>{{ .Title }}</h1>
+    {{ if .Item.Overview }}<p class="overview">{{ .Item.Overview }}</p>{{ end }}
+  </div>
+</div>
+<div class="media-page">
+  {{ $lang := .Lang }}
+  {{ range .Seasons }}
+  <section class="season">
+    <h2>{{ .Name }}</h2>
+    <ol class="episodes">
+      {{ range .Episodes }}
+      <li class="episode{{ if .Watched }} watched{{ end }}">
+        <a href="/watch/{{ .ID }}">
+          <span class="episode-number">{{ .Number }}</span>
+          <span class="episode-name">{{ .Name }}</span>
+          {{ if .Watched }}<span class="episode-watched" title='{{ t $lang "watched" }}'>✓</span>{{ end }}
+        </a>
+        {{ if .HasBar }}<div class="bar"><span style="width: {{ pct .Fraction }}%"></span></div>{{ end }}
+      </li>
+      {{ end }}
+    </ol>
+  </section>
+  {{ end }}
+</div>
+{{ end }}

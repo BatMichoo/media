@@ -1,0 +1,248 @@
+package handlers
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/BatMichoo/media/internal/downloads"
+	"github.com/BatMichoo/media/internal/i18n"
+	"github.com/BatMichoo/theme"
+	"github.com/gin-gonic/gin"
+)
+
+const maxTorrent = 10 << 20
+
+// addForm is what the Add page shows (again, after an error).
+type addForm struct {
+	Lang                     string
+	Magnet, Kind, Title, Year string
+	Error                    string
+}
+
+func (h *web) getAdd(c *gin.Context) {
+	h.render(c, http.StatusOK, "media/add", "add.title", addForm{Lang: lang(c), Kind: "movie"})
+}
+
+// errorText is the translated message for a service error.
+func errorText(l string, err error) string {
+	var in *downloads.InvalidError
+	if errors.As(err, &in) {
+		return i18n.T(l, in.Key)
+	}
+	log.Printf("downloads: %v", err)
+	return i18n.T(l, "error.generic")
+}
+
+// parseYear reads an optional year field: "" is 0.
+func parseYear(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, true
+	}
+	y, err := strconv.Atoi(s)
+	return y, err == nil
+}
+
+func (h *web) postAdd(c *gin.Context) {
+	l := lang(c)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxTorrent+64<<10)
+	f := addForm{Lang: l, Magnet: strings.TrimSpace(c.PostForm("magnet")), Kind: c.PostForm("kind"),
+		Title: c.PostForm("title"), Year: c.PostForm("year")}
+	fail := func(status int, msg string) {
+		f.Error = msg
+		h.render(c, status, "media/add", "add.title", f)
+	}
+	var file []byte
+	if fh, err := c.FormFile("torrent"); err == nil {
+		if fh.Size > maxTorrent {
+			fail(http.StatusRequestEntityTooLarge, i18n.T(l, "error.too_big"))
+			return
+		}
+		r, err := fh.Open()
+		if err != nil {
+			fail(http.StatusBadRequest, i18n.T(l, "error.generic"))
+			return
+		}
+		file, err = io.ReadAll(io.LimitReader(r, maxTorrent))
+		r.Close()
+		if err != nil {
+			fail(http.StatusBadRequest, i18n.T(l, "error.generic"))
+			return
+		}
+	} else if c.Request.MultipartForm == nil && c.ContentType() == "multipart/form-data" {
+		fail(http.StatusRequestEntityTooLarge, i18n.T(l, "error.too_big"))
+		return
+	}
+	year, ok := parseYear(f.Year)
+	if !ok {
+		fail(http.StatusUnprocessableEntity, i18n.T(l, "error.year"))
+		return
+	}
+	_, _, err := h.d.Downloads.Add(c.Request.Context(), CurrentUser(c),
+		downloads.AddInput{Magnet: f.Magnet, File: file, Kind: f.Kind, Title: f.Title, Year: year})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, downloads.ErrInvalid) {
+			status = http.StatusUnprocessableEntity
+		}
+		fail(status, errorText(l, err))
+		return
+	}
+	c.Redirect(http.StatusSeeOther, "/downloads")
+}
+
+// downloadRow is one download as the list shows it.
+type downloadRow struct {
+	downloads.Download
+	Lang string
+}
+
+// Label is "Title (Year)" or "Title".
+func (d downloadRow) Label() string {
+	if d.Year > 0 {
+		return fmt.Sprintf("%s (%d)", d.Title, d.Year)
+	}
+	return d.Title
+}
+
+type downloadsView struct {
+	Lang        string
+	Rows        []downloadRow
+	Unreachable bool
+	LinkProblem string
+	Toast       *theme.Toast
+}
+
+func (h *web) downloadsData(c *gin.Context) downloadsView {
+	l := lang(c)
+	v := downloadsView{Lang: l}
+	list, err := h.d.Downloads.List(c.Request.Context())
+	if err != nil {
+		log.Printf("downloads: %v", err)
+		v.Unreachable = true
+	}
+	for _, d := range list {
+		v.Rows = append(v.Rows, downloadRow{Download: d, Lang: l})
+	}
+	if err := h.d.LinkProblem(); err != nil {
+		v.LinkProblem = err.Error()
+	}
+	return v
+}
+
+func (h *web) downloads(c *gin.Context) {
+	h.render(c, http.StatusOK, "media/downloads", "downloads.title", h.downloadsData(c))
+}
+
+func (h *web) downloadsList(c *gin.Context) {
+	h.fragment(c, http.StatusOK, "media/downloads-list", h.downloadsData(c))
+}
+
+// find is one download by hash, from the list.
+func (h *web) find(c *gin.Context) (downloads.Download, bool) {
+	list, _ := h.d.Downloads.List(c.Request.Context())
+	for _, d := range list {
+		if d.Hash == c.Param("hash") {
+			return d, true
+		}
+	}
+	return downloads.Download{}, false
+}
+
+type editView struct {
+	Lang, Hash, Kind, Title, Year, Error string
+	Heading                              theme.SheetHeading
+	Actions                              theme.SheetActions
+}
+
+func (h *web) editData(c *gin.Context, hash, kind, title, year, errText string) editView {
+	l := lang(c)
+	return editView{Lang: l, Hash: hash, Kind: kind, Title: title, Year: year, Error: errText,
+		Heading: theme.SheetHeading{Title: i18n.T(l, "edit.title"), Lang: l},
+		Actions: theme.SheetActions{Lang: l}}
+}
+
+func (h *web) getEdit(c *gin.Context) {
+	d, ok := h.find(c)
+	if !ok {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	year := ""
+	if d.Year > 0 {
+		year = strconv.Itoa(d.Year)
+	}
+	h.fragment(c, http.StatusOK, "media/edit-sheet", h.editData(c, d.Hash, d.Kind, d.Title, year, ""))
+}
+
+// sheetError shows a form again in the sheet, with its error.
+func (h *web) sheetError(c *gin.Context, name string, data any) {
+	c.Header("HX-Retarget", "#sheet")
+	c.Header("HX-Reswap", "innerHTML")
+	h.fragment(c, http.StatusOK, name, data)
+}
+
+// listWithToast answers with the refreshed list and a toast.
+func (h *web) listWithToast(c *gin.Context, titleKey string) {
+	v := h.downloadsData(c)
+	v.Toast = &theme.Toast{Kind: theme.ToastSuccess, Title: i18n.T(v.Lang, titleKey), Lang: v.Lang}
+	h.fragment(c, http.StatusOK, "media/downloads-list", v)
+}
+
+func (h *web) postEdit(c *gin.Context) {
+	l := lang(c)
+	hash, kind, title, yearText := c.Param("hash"), c.PostForm("kind"), c.PostForm("title"), c.PostForm("year")
+	year, ok := parseYear(yearText)
+	if !ok {
+		h.sheetError(c, "media/edit-sheet", h.editData(c, hash, kind, title, yearText, i18n.T(l, "error.year")))
+		return
+	}
+	err := h.d.Downloads.Edit(c.Request.Context(), hash, kind, title, year)
+	switch {
+	case errors.Is(err, downloads.ErrNotFound):
+		c.Status(http.StatusNotFound)
+		return
+	case err != nil:
+		h.sheetError(c, "media/edit-sheet", h.editData(c, hash, kind, title, yearText, errorText(l, err)))
+		return
+	}
+	h.listWithToast(c, "toast.saved")
+}
+
+type removeView struct {
+	Lang, Hash, Message string
+	Heading             theme.SheetHeading
+}
+
+func (h *web) getRemove(c *gin.Context) {
+	d, ok := h.find(c)
+	if !ok {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	l := lang(c)
+	h.fragment(c, http.StatusOK, "media/remove-sheet", removeView{Lang: l, Hash: d.Hash,
+		Message: fmt.Sprintf(i18n.T(l, "remove.message"), downloadRow{Download: d}.Label()),
+		Heading: theme.SheetHeading{Title: i18n.T(l, "remove.title"), Lang: l}})
+}
+
+func (h *web) postRemove(c *gin.Context) {
+	err := h.d.Downloads.Remove(c.Request.Context(), c.Param("hash"), c.PostForm("delete_files") != "")
+	if errors.Is(err, downloads.ErrNotFound) {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Printf("remove: %v", err)
+		v := h.downloadsData(c)
+		v.Toast = &theme.Toast{Kind: theme.ToastError, Title: i18n.T(v.Lang, "error.generic"), Lang: v.Lang}
+		h.fragment(c, http.StatusOK, "media/downloads-list", v)
+		return
+	}
+	h.listWithToast(c, "toast.removed")
+}

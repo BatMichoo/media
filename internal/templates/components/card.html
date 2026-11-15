@@ -1,0 +1,31 @@
+{{/* A poster card. Input: card. */}}
+{{ define "media/card" }}
+<article class="card media-card">
+  <a class="card-link" href="{{ .Href }}">
+    <img class="poster" loading="lazy" src="{{ .Image }}" alt="" />
+    {{ if .HasBar }}<div class="bar"><span style="width: {{ pct .Fraction }}%"></span></div>{{ end }}
+    <span class="card-title">{{ .Title }}</span>
+    {{ if .Sub }}<span class="card-sub">{{ .Sub }}</span>{{ end }}
+  </a>
+</article>
+{{ end }}
+
+{{/* A horizontal row of cards with a heading. Input: dict Lang ID Heading More Cards Empty. */}}
+{{ define "media/row" }}
+<section class="row" id="{{ .ID }}">
+  <div class="row-head">
+    <h2>{{ .Heading }}</h2>
+    {{ if .More }}<a class="see-all" href="{{ .More }}">{{ t .Lang "see_all" }}</a>{{ end }}
+  </div>
+  {{ if .Cards }}
+  <div class="row-cards">{{ range .Cards }}{{ template "media/card" . }}{{ end }}</div>
+  {{ else if .Empty }}
+  <p class="empty">{{ .Empty }}</p>
+  {{ end }}
+</section>
+{{ end }}
+
+{{/* A plain message page. Input: message. */}}
+{{ define "media/message" }}
+<div class="media-page"><p class="unavailable">{{ .Text }}</p></div>
+{{ end }}

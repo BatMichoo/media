@@ -79,7 +79,7 @@ func (s *Service) Save(ctx context.Context, userID string, in SaveInput) (Progre
 	total := sum(in.PartDurations)
 	watched := sum(in.PartDurations[:in.Part]) + in.Position
 	p := Progress{
-		ItemID: in.ItemID, SeriesID: in.SeriesID, Part: in.Part, Position: in.Position, Duration: total,
+		ItemID: in.ItemID, SeriesID: in.SeriesID, Part: in.Part, Position: in.Position, Duration: total, Watched: watched,
 		Finished: total > 0 && watched >= FinishedAt*total, UpdatedAt: s.Now(),
 	}
 	return p, s.store.SaveProgress(ctx, userID, p)
@@ -104,23 +104,11 @@ func (s *Service) Many(ctx context.Context, userID string, itemIDs []string) (ma
 }
 
 // Fraction is how much of the item is watched, 0..1, for progress bars.
-// partDurations may be nil for a single-part item.
-func (s *Service) Fraction(p Progress, partDurations []float64) float64 {
+func Fraction(p Progress) float64 {
 	if p.Duration <= 0 {
 		return 0
 	}
-	before := 0.0
-	if p.Part > 0 && p.Part <= len(partDurations) {
-		before = sum(partDurations[:p.Part])
-	}
-	f := (before + p.Position) / p.Duration
-	switch {
-	case f < 0:
-		return 0
-	case f > 1:
-		return 1
-	}
-	return f
+	return min(max(p.Watched/p.Duration, 0), 1)
 }
 
 // Entry is one card in Continue watching. Progress is nil for a next

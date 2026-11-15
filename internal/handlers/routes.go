@@ -16,7 +16,15 @@ type Pinger interface {
 
 // Deps is everything the handlers need, built once in main.
 type Deps struct {
-	DB Pinger
+	DB          Pinger
+	Catalog     Catalog
+	Player      Player
+	Downloads   Downloads
+	Watching    Watching
+	Upstream    Upstream
+	LanDomain   string       // cookies are set for it; POSTs must come from it
+	AuthURL     string       // the login service, e.g. https://auth.homeserver.lan
+	LinkProblem func() error // why downloads can't be filed, nil when fine
 }
 
 // NewRouter is the base router with the health check. It depends on the

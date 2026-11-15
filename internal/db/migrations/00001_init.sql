@@ -28,6 +28,7 @@ CREATE TABLE progress (
   part INT NOT NULL DEFAULT 0,           -- 0-based part of a multi-part movie
   position_seconds DOUBLE PRECISION NOT NULL,  -- within that part
   duration_seconds DOUBLE PRECISION NOT NULL,  -- whole item (all parts)
+  watched_seconds DOUBLE PRECISION NOT NULL,   -- earlier parts + position
   finished BOOLEAN NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, item_id)

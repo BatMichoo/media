@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -14,7 +15,8 @@ const ticksPerSecond = 10_000_000
 // Item is a movie, series, season, episode or extra.
 type Item struct {
 	ID, Type, Name, Path, Overview, SeriesID string
-	Year, ParentIndex, Index                 int // season and episode numbers
+	SeriesName                               string // Jellyfin's, for episodes
+	Year, ParentIndex, Index                 int    // season and episode numbers
 	RunTimeSeconds                           float64
 	PartCount                                int
 	DateCreated                              time.Time
@@ -35,8 +37,24 @@ func (i Item) DisplayTitle() string {
 	return i.Name
 }
 
+// ShowTitle is an episode's series title as typed when adding (the folder
+// under Shows/), else Jellyfin's series name; "" for anything else.
+func (i Item) ShowTitle() string {
+	if i.Type != "Episode" {
+		return ""
+	}
+	p := filepath.ToSlash(i.Path)
+	if _, rest, ok := strings.Cut(p, "/library/Shows/"); ok {
+		if name, _, ok := strings.Cut(rest, "/"); ok && name != "" {
+			return name
+		}
+	}
+	return i.SeriesName
+}
+
 type apiItem struct {
 	Id, Type, Name, Path, Overview, SeriesId string
+	SeriesName                               string
 	ProductionYear                           int
 	ParentIndexNumber, IndexNumber           int
 	RunTimeTicks                             int64
@@ -46,7 +64,7 @@ type apiItem struct {
 
 func (a apiItem) item() Item {
 	return Item{
-		ID: a.Id, Type: a.Type, Name: a.Name, Path: a.Path, Overview: a.Overview, SeriesID: a.SeriesId,
+		ID: a.Id, Type: a.Type, Name: a.Name, Path: a.Path, Overview: a.Overview, SeriesID: a.SeriesId, SeriesName: a.SeriesName,
 		Year: a.ProductionYear, ParentIndex: a.ParentIndexNumber, Index: a.IndexNumber,
 		RunTimeSeconds: float64(a.RunTimeTicks) / ticksPerSecond, PartCount: a.PartCount,
 		DateCreated: a.DateCreated,

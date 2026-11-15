@@ -96,7 +96,11 @@ func TestMultiPartFinished(t *testing.T) {
 	assert.True(t, p.Finished)
 	assert.Equal(t, 6000.0, p.Duration)
 	assert.Equal(t, 1, p.Part)
-	assert.InDelta(t, 0.9, e.s.Fraction(p, parts), 1e-9)
+	assert.Equal(t, 5400.0, p.Watched)
+	assert.InDelta(t, 0.9, Fraction(p), 1e-9)
+	got, _, err := e.s.Get(context.Background(), user, "m")
+	require.NoError(t, err)
+	assert.Equal(t, 5400.0, got.Watched, "stored")
 }
 
 func TestSaveRejectsBadPart(t *testing.T) {

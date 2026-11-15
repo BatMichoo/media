@@ -1,0 +1,74 @@
+{{ define "media/downloads" }}
+<div class="media-page">
+  <div class="page-actions"><a class="btn-primary" href="/add">{{ t .Lang "add" }}</a></div>
+  <h1>{{ t .Lang "downloads.title" }}</h1>
+  {{ if .LinkProblem }}<p class="link-problem" role="alert">{{ printf (t .Lang "downloads.link_problem") .LinkProblem }}</p>{{ end }}
+  {{ template "media/downloads-list" . }}
+</div>
+{{ end }}
+
+{{/* The list, refreshed every 5 seconds. Input: downloadsView. */}}
+{{ define "media/downloads-list" }}
+<div id="downloads-list" hx-get="/downloads/list" hx-trigger="every 5s" hx-swap="outerHTML">
+  {{ if .Unreachable }}<p class="unreachable">{{ t .Lang "downloads.unreachable" }}</p>{{ end }}
+  {{ if .Rows }}
+  <ul class="downloads">
+    {{ range .Rows }}
+    <li class="download state-{{ .State }}">
+      <div class="download-main">
+        <strong>{{ .Label }}</strong>
+        <span class="chip-like">{{ t .Lang (printf "kind.%s" .Kind) }}</span>
+        <span class="state">{{ t .Lang (printf "state.%s" .State) }}</span>
+      </div>
+      <div class="download-info">
+        {{ if eq .State "downloading" }}
+        <div class="bar"><span style="width: {{ pct .Percent }}%"></span></div>
+        <span>{{ pct .Percent }}%</span>{{ if .RateDownload }} · <span>{{ rate .RateDownload }}</span>{{ end }}
+        {{ end }}
+        {{ if .SeedingDone }}<span>{{ t .Lang "downloads.seeding_done" }}</span>
+        {{ else if not .SeedingUntil.IsZero }}<span>{{ printf (t .Lang "downloads.seeding_until") (when .SeedingUntil) }}</span>{{ end }}
+        {{ if .Reason }}<span class="reason">{{ .Reason }}</span>{{ end }}
+        {{ if .AddedByName }}<span class="added-by">{{ printf (t .Lang "downloads.added_by") .AddedByName }}</span>{{ end }}
+      </div>
+      <div class="download-actions">
+        <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/edit" hx-target="#sheet">{{ t .Lang "edit" }}</button>
+        <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/remove" hx-target="#sheet">{{ t .Lang "remove" }}</button>
+      </div>
+    </li>
+    {{ end }}
+  </ul>
+  {{ else }}
+  <p class="empty">{{ t .Lang "downloads.empty" }}</p>
+  {{ end }}
+</div>
+{{ with .Toast }}{{ template "theme/toast" . }}{{ end }}
+{{ end }}
+
+{{/* Edit a download, in the sheet. Input: editView. */}}
+{{ define "media/edit-sheet" }}
+<div class="sheet">
+  {{ template "theme/sheet-heading" .Heading }}
+  <form class="sheet-form" hx-post="/downloads/{{ .Hash }}/edit" hx-target="#downloads-list" hx-swap="outerHTML"
+    hx-on::after-request="if (event.detail.target.id === 'downloads-list') themeHideSheet()">
+    {{ if .Error }}<p class="form-error" role="alert">{{ .Error }}</p>{{ end }}
+    {{ template "media/kind-title-year" . }}
+    {{ template "theme/sheet-actions" .Actions }}
+  </form>
+</div>
+{{ end }}
+
+{{/* Remove a download, in the sheet. Input: removeView. */}}
+{{ define "media/remove-sheet" }}
+<div class="sheet">
+  {{ template "theme/sheet-heading" .Heading }}
+  <form class="sheet-form" hx-post="/downloads/{{ .Hash }}/remove" hx-target="#downloads-list" hx-swap="outerHTML"
+    hx-on::after-request="themeHideSheet()">
+    <p>{{ .Message }}</p>
+    <label class="check"><input type="checkbox" name="delete_files" /> {{ t .Lang "remove.delete_files" }}</label>
+    <div class="sheet-actions">
+      <button type="button" class="sheet-cancel" onClick="themeHideSheet();">{{ themeT .Lang "cancel" }}</button>
+      <button type="submit" class="btn-primary sheet-save danger">{{ t .Lang "remove" }}</button>
+    </div>
+  </form>
+</div>
+{{ end }}

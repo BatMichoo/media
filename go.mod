@@ -3,6 +3,8 @@ module github.com/BatMichoo/media
 go 1.23.0
 
 require (
+	github.com/BatMichoo/theme v0.1.0
+	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/gin-gonic/gin v1.10.1
 	github.com/lib/pq v1.10.9
 	github.com/pressly/goose/v3 v3.26.0
@@ -10,6 +12,7 @@ require (
 )
 
 require (
+	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect

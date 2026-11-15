@@ -15,15 +15,16 @@ type Progress struct {
 	Part             int     // 0-based part of a multi-part movie
 	Position         float64 // seconds within that part
 	Duration         float64 // seconds, the whole item
+	Watched          float64 // seconds watched: earlier parts plus Position
 	Finished         bool
 	UpdatedAt        time.Time
 }
 
-const progressCols = `item_id, COALESCE(series_id, ''), part, position_seconds, duration_seconds, finished, updated_at`
+const progressCols = `item_id, COALESCE(series_id, ''), part, position_seconds, duration_seconds, watched_seconds, finished, updated_at`
 
 func scanProgress(row interface{ Scan(...any) error }) (Progress, error) {
 	var p Progress
-	err := row.Scan(&p.ItemID, &p.SeriesID, &p.Part, &p.Position, &p.Duration, &p.Finished, &p.UpdatedAt)
+	err := row.Scan(&p.ItemID, &p.SeriesID, &p.Part, &p.Position, &p.Duration, &p.Watched, &p.Finished, &p.UpdatedAt)
 	return p, err
 }
 
@@ -34,12 +35,13 @@ func (d *DB) SaveProgress(ctx context.Context, userID string, p Progress) error 
 		series = p.SeriesID
 	}
 	_, err := d.SQL.ExecContext(ctx, `INSERT INTO progress
-		(user_id, item_id, series_id, part, position_seconds, duration_seconds, finished, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		(user_id, item_id, series_id, part, position_seconds, duration_seconds, watched_seconds, finished, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (user_id, item_id) DO UPDATE SET series_id = EXCLUDED.series_id, part = EXCLUDED.part,
 			position_seconds = EXCLUDED.position_seconds, duration_seconds = EXCLUDED.duration_seconds,
+			watched_seconds = EXCLUDED.watched_seconds,
 			finished = EXCLUDED.finished, updated_at = EXCLUDED.updated_at`,
-		userID, p.ItemID, series, p.Part, p.Position, p.Duration, p.Finished, p.UpdatedAt)
+		userID, p.ItemID, series, p.Part, p.Position, p.Duration, p.Watched, p.Finished, p.UpdatedAt)
 	return err
 }
 

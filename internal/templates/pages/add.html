@@ -1,0 +1,40 @@
+{{ define "media/add" }}
+<div class="media-page narrow">
+  <h1>{{ t .Lang "add.title" }}</h1>
+  <div class="sheet">
+    <form class="sheet-form" method="post" action="/add" enctype="multipart/form-data">
+      {{ if .Error }}<p class="form-error" role="alert">{{ .Error }}</p>{{ end }}
+      <div>
+        <label for="magnet">{{ t .Lang "add.magnet" }}</label>
+        <input type="text" id="magnet" name="magnet" value="{{ .Magnet }}" placeholder="magnet:?xt=…" autocomplete="off" />
+      </div>
+      <div>
+        <label for="torrent">{{ t .Lang "add.file" }}</label>
+        <input type="file" id="torrent" name="torrent" accept=".torrent,application/x-bittorrent" />
+      </div>
+      {{ template "media/kind-title-year" . }}
+      <div class="sheet-actions">
+        <button type="submit" class="btn-primary sheet-save">{{ t .Lang "add.submit" }}</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{ end }}
+
+{{/* Kind, title and year fields. Input: anything with Lang Kind Title Year. */}}
+{{ define "media/kind-title-year" }}
+<fieldset class="kind">
+  <legend>{{ t .Lang "add.kind" }}</legend>
+  <label class="chip"><input type="radio" name="kind" value="movie"{{ if ne .Kind "series" }} checked{{ end }} /><span>{{ t .Lang "kind.movie" }}</span></label>
+  <label class="chip"><input type="radio" name="kind" value="series"{{ if eq .Kind "series" }} checked{{ end }} /><span>{{ t .Lang "kind.series" }}</span></label>
+</fieldset>
+<div>
+  <label for="title">{{ t .Lang "add.title_label" }}</label>
+  <input type="text" id="title" name="title" value="{{ .Title }}" required />
+</div>
+<div>
+  <label for="year">{{ t .Lang "add.year" }}</label>
+  <input type="text" id="year" name="year" value="{{ .Year }}" inputmode="numeric" maxlength="4" />
+  <small class="hint">{{ t .Lang "add.year_hint" }}</small>
+</div>
+{{ end }}
