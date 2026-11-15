@@ -81,8 +81,8 @@ func source() jellyfin.Source {
 	return jellyfin.Source{
 		Direct: false, URL: "/videos/" + vid + "/master.m3u8?PlaySessionId=ps1", PlaySessionID: "ps1", MediaSourceID: "ms1",
 		DurationSeconds: 100,
-		Subtitles: []jellyfin.Track{{Index: 3, Label: "English", Lang: "eng"}, {Index: 4, Label: "Bulgarian PGS", Lang: "bul", Image: true}},
-		Audio:     []jellyfin.Track{{Index: 1, Label: "English", Lang: "eng", Default: true}, {Index: 2, Label: "Bulgarian", Lang: "bul"}},
+		Subtitles:       []jellyfin.Track{{Index: 3, Label: "English", Lang: "eng"}, {Index: 4, Label: "Bulgarian PGS", Lang: "bul", Image: true}},
+		Audio:           []jellyfin.Track{{Index: 1, Label: "English", Lang: "eng", Default: true}, {Index: 2, Label: "Bulgarian", Lang: "bul"}},
 	}
 }
 
