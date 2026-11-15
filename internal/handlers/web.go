@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"log"
 	"math"
 	"net/http"
@@ -77,8 +80,25 @@ var funcs = template.FuncMap{
 		}
 		return fmt.Sprintf("%d B/s", b)
 	},
-	"when": func(t time.Time) string { return t.Local().Format("2 Jan 15:04") },
+	"when":         func(t time.Time) string { return t.Local().Format("2 Jan 15:04") },
+	"assetVersion": func() string { return staticVersion },
 }
+
+// staticVersion changes whenever one of the app's own files does, so
+// browsers fetch the new one (?v=...).
+var staticVersion = func() string {
+	h := sha256.New()
+	_ = fs.WalkDir(static.FS, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := fs.ReadFile(static.FS, p)
+		h.Write([]byte(p))
+		h.Write(b)
+		return err
+	})
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}()
 
 // clock is seconds as m:ss or h:mm:ss.
 func clock(seconds float64) string {
@@ -127,7 +147,7 @@ func (h *web) render(c *gin.Context, status int, content, titleKey string, data 
 		Footer:  theme.Footer{Year: time.Now().Year(), AppName: app, Lang: l},
 		Content: content,
 		Data:    data,
-		CSS:     []string{"/static/media/css/media.css?v=" + theme.AssetVersion()},
+		CSS:     []string{"/static/media/css/media.css?v=" + staticVersion},
 	}
 	if err := h.set.ExecuteTemplate(c.Writer, "theme/page", page); err != nil {
 		log.Printf("render %s: %v", content, err)

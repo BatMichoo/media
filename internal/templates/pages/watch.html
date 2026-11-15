@@ -1,0 +1,27 @@
+{{ define "media/watch" }}
+<div id="player" class="player" tabindex="-1"
+  data-item="{{ .Item }}" data-series="{{ .Series }}" data-parts="{{ .Parts }}" data-part="{{ .Part }}"
+  data-start="{{ .Start }}" data-back="{{ .Back }}" data-labels="{{ .Labels }}">
+  <video playsinline preload="metadata"></video>
+  <p class="player-error" hidden></p>
+  <div class="player-top">
+    <a class="player-button" href="{{ .Back }}" data-action="back">← <span>{{ t .Lang "player.back" }}</span></a>
+    <span class="player-title">{{ .Title }}</span>
+  </div>
+  <div class="player-controls">
+    <input class="player-seek" type="range" min="0" max="0" step="1" value="0" aria-label="Seek" />
+    <div class="player-row">
+      <button type="button" class="player-button" data-action="back10" aria-label='{{ t .Lang "player.back10" }}'>⟲ 10</button>
+      <button type="button" class="player-button player-toggle" data-action="toggle" aria-label='{{ t .Lang "player.play" }}'>▶</button>
+      <button type="button" class="player-button" data-action="forward10" aria-label='{{ t .Lang "player.forward10" }}'>10 ⟳</button>
+      <span class="player-time">0:00 / 0:00</span>
+      <span class="player-spacer"></span>
+      <label class="player-select"><span>{{ t .Lang "player.subtitles" }}</span><select data-action="subtitles"></select></label>
+      <label class="player-select" hidden><span>{{ t .Lang "player.audio" }}</span><select data-action="audio"></select></label>
+      <button type="button" class="player-button" data-action="fullscreen" aria-label='{{ t .Lang "player.fullscreen" }}'>⛶</button>
+    </div>
+  </div>
+</div>
+<script src="/static/media/js/hls.min.js?v={{ assetVersion }}"></script>
+<script src="/static/media/js/player.js?v={{ assetVersion }}"></script>
+{{ end }}
