@@ -40,7 +40,8 @@ type Torrent struct {
 	Hash, Name   string
 	PercentDone  float64
 	RateDownload int64 // bytes per second
-	Error        string
+	Error        string // Transmission's message, "" when fine
+	LocalError   bool   // a problem with the data itself (not a tracker warning)
 	Files        []File
 	DoneDate     time.Time // zero until it finished downloading
 	Stopped      bool
@@ -52,7 +53,8 @@ func (c *Client) Add(ctx context.Context, magnet string, torrentFile []byte, dow
 	if (magnet == "") == (len(torrentFile) == 0) {
 		return "", "", false, errors.New("transmission: give a magnet link or a torrent file, not both")
 	}
-	args := map[string]any{"download-dir": downloadDir}
+	// Paused, so nothing is written before Place gives it its own folder.
+	args := map[string]any{"download-dir": downloadDir, "paused": true}
 	if magnet != "" {
 		args["filename"] = magnet
 	} else {
@@ -98,7 +100,8 @@ func (c *Client) Get(ctx context.Context, hashes []string) (map[string]Torrent, 
 			Stopped:      t.Status == 0,
 		}
 		if t.Error != 0 {
-			tor.Error = t.ErrorString
+			// 1 and 2 are tracker warnings and errors; 3 is local.
+			tor.Error, tor.LocalError = t.ErrorString, t.Error == 3
 		}
 		if t.DoneDate > 0 {
 			tor.DoneDate = time.Unix(t.DoneDate, 0)
@@ -121,10 +124,23 @@ func (c *Client) Stop(ctx context.Context, hash string) error {
 	return c.call(ctx, "torrent-stop", map[string]any{"ids": []string{hash}}, nil)
 }
 
-// DisableSeedLimits turns off Transmission's own ratio and idle limits:
+// Place gives a just-added (paused) torrent its folder and starts it.
+func (c *Client) Place(ctx context.Context, hash, dir string) error {
+	if err := c.call(ctx, "torrent-set-location", map[string]any{"ids": []string{hash}, "location": dir, "move": false}, nil); err != nil {
+		return err
+	}
+	return c.call(ctx, "torrent-start", map[string]any{"ids": []string{hash}}, nil)
+}
+
+// ConfigureSession makes unfinished downloads go to downloadDir too (the
+// image's default "incomplete" folder is inside the container, on the
+// system disk), and turns off Transmission's own ratio and idle limits:
 // the app decides when seeding stops.
-func (c *Client) DisableSeedLimits(ctx context.Context) error {
-	return c.call(ctx, "session-set", map[string]any{"seedRatioLimited": false, "idle-seeding-limit-enabled": false}, nil)
+func (c *Client) ConfigureSession(ctx context.Context, downloadDir string) error {
+	return c.call(ctx, "session-set", map[string]any{
+		"seedRatioLimited": false, "idle-seeding-limit-enabled": false,
+		"incomplete-dir-enabled": false, "download-dir": downloadDir,
+	}, nil)
 }
 
 type rpcTorrent struct {

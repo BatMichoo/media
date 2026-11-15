@@ -103,7 +103,7 @@ func TestAddMagnet(t *testing.T) {
 	assert.False(t, dup)
 	require.Len(t, f.calls, 1)
 	assert.Equal(t, "torrent-add", f.calls[0].Method)
-	assert.Equal(t, map[string]any{"filename": "magnet:?xt=urn:btih:abcdef", "download-dir": "/data/downloads"}, f.calls[0].Arguments)
+	assert.Equal(t, map[string]any{"filename": "magnet:?xt=urn:btih:abcdef", "download-dir": "/data/downloads", "paused": true}, f.calls[0].Arguments)
 }
 
 func TestAddFileDuplicate(t *testing.T) {
@@ -193,10 +193,47 @@ func TestStop(t *testing.T) {
 	assert.Equal(t, []any{"abc"}, f.calls[0].Arguments["ids"])
 }
 
-func TestDisableSeedLimits(t *testing.T) {
+func TestConfigureSession(t *testing.T) {
+	// Unfinished downloads go straight to the media folder too (the image's
+	// default "incomplete" folder is inside the container), and the app
+	// decides when seeding stops.
 	f := &fake{}
 	_, c := f.server(t)
-	require.NoError(t, c.DisableSeedLimits(context.Background()))
+	require.NoError(t, c.ConfigureSession(context.Background(), "/data/downloads"))
 	assert.Equal(t, "session-set", f.calls[0].Method)
-	assert.Equal(t, map[string]any{"seedRatioLimited": false, "idle-seeding-limit-enabled": false}, f.calls[0].Arguments)
+	assert.Equal(t, map[string]any{"seedRatioLimited": false, "idle-seeding-limit-enabled": false,
+		"incomplete-dir-enabled": false, "download-dir": "/data/downloads"}, f.calls[0].Arguments)
+}
+
+func TestAddPausedAndMove(t *testing.T) {
+	f := &fake{reply: func(c call) map[string]any {
+		if c.Method == "torrent-add" {
+			return ok(map[string]any{"torrent-added": map[string]any{"hashString": "AB", "name": "x"}})
+		}
+		return ok(map[string]any{})
+	}}
+	_, c := f.server(t)
+	_, _, _, err := c.Add(context.Background(), "magnet:?xt=1", nil, "/data/downloads")
+	require.NoError(t, err)
+	assert.Equal(t, true, f.calls[0].Arguments["paused"], "added paused, so nothing lands before it has its own folder")
+	require.NoError(t, c.Place(context.Background(), "ab", "/data/downloads/ab"))
+	assert.Equal(t, "torrent-set-location", f.calls[1].Method)
+	assert.Equal(t, map[string]any{"ids": []any{"ab"}, "location": "/data/downloads/ab", "move": false}, f.calls[1].Arguments)
+	assert.Equal(t, "torrent-start", f.calls[2].Method)
+	assert.Equal(t, []any{"ab"}, f.calls[2].Arguments["ids"])
+}
+
+func TestErrorKinds(t *testing.T) {
+	f := &fake{reply: func(call) map[string]any {
+		return ok(map[string]any{"torrents": []any{
+			map[string]any{"hashString": "a", "error": 2, "errorString": "unregistered torrent", "percentDone": 1.0},
+			map[string]any{"hashString": "b", "error": 3, "errorString": "No data found"},
+		}})
+	}}
+	_, c := f.server(t)
+	got, err := c.Get(context.Background(), []string{"a", "b"})
+	require.NoError(t, err)
+	assert.Equal(t, "unregistered torrent", got["a"].Error)
+	assert.False(t, got["a"].LocalError, "a tracker problem")
+	assert.True(t, got["b"].LocalError)
 }

@@ -67,7 +67,9 @@ func main() {
 	go retry(ctx, "jellyfin setup", func(ctx context.Context) error {
 		return jf.Setup(ctx, filepath.Join(cfg.DataDir, "library"))
 	})
-	go retry(ctx, "transmission seeding limits", tr.DisableSeedLimits)
+	go retry(ctx, "transmission settings", func(ctx context.Context) error {
+		return tr.ConfigureSession(ctx, filepath.Join(cfg.DataDir, "downloads"))
+	})
 	go dl.Run(ctx, cfg.PollInterval)
 
 	router, err := handlers.NewWebRouter(handlers.Deps{

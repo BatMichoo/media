@@ -73,6 +73,25 @@ code=$(app -o /dev/null -w '%{http_code}' -F kind=movie -F "title=Test Movie" -F
 [ "$code" = 303 ] || fail "add answered $code"
 echo "added: ok"
 
+# The app gave the download its own folder, downloads/<hash>/: put the
+# data there (as if it had downloaded) and have Transmission check it.
+hash=$(app "$url/downloads/list" | grep -o 'downloads/[0-9a-f]\{40\}/edit' | head -1 | cut -d/ -f2)
+[ -n "$hash" ] || fail "no download hash"
+mkdir -p "$DATA/downloads/$hash"
+mv "$src" "$DATA/downloads/$hash/"
+src="$DATA/downloads/$hash/Test.Movie.2024"
+compose exec -T transmission transmission-remote -n media:tr-test -t "$hash" --verify >/dev/null ||
+	fail "can't make Transmission check the data"
+
+# Unfinished downloads also go to the media folder, not inside the container.
+session=$(compose exec -T transmission transmission-remote -n media:tr-test -si)
+echo "$session" | grep -q 'Download directory: /data/downloads' || fail "download folder not set: $session"
+# shellcheck disable=SC2016 # expanded inside the container
+compose exec -T transmission sh -c '
+	sid=$(curl -s -u media:tr-test -D - -o /dev/null http://localhost:9091/transmission/rpc | grep -i "^X-Transmission-Session-Id" | tr -d "\r")
+	curl -s -u media:tr-test -H "$sid" -d "{\"method\":\"session-get\"}" http://localhost:9091/transmission/rpc' |
+	grep -q '"incomplete-dir-enabled":false' || fail "Transmission still keeps unfinished downloads in its incomplete folder"
+
 # 4. Transmission checks the local data and the app files it.
 filed() { app "$url/downloads/list" | grep -q 'state-filed'; }
 if ! wait_for filed 120; then
@@ -141,8 +160,6 @@ if grep -qi 'api_key\|apikey' "$out"; then fail "a response carries an api key";
 echo "no token: ok"
 
 # 9. Remove with files: library folder and download gone.
-hash=$(app "$url/downloads/list" | grep -o 'downloads/[0-9a-f]\{40\}/edit' | head -1 | cut -d/ -f2)
-[ -n "$hash" ] || fail "no download hash"
 app -o /dev/null -d delete_files=on "$url/downloads/$hash/remove"
 gone() { [ ! -e "$lib" ] && [ ! -e "$src/Test.Movie.2024.mkv" ]; }
 wait_for gone 30 || fail "files left after remove: $(ls -R "$DATA")"

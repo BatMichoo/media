@@ -63,9 +63,10 @@ type file struct {
 	size int64
 }
 
-func newFile(tf transmission.File) (file, error) {
-	from := path.Join("downloads", tf.Name)
-	if !strings.HasPrefix(from, "downloads/") || strings.HasPrefix(path.Clean(tf.Name), "../") || path.IsAbs(tf.Name) {
+func newFile(dir string, tf transmission.File) (file, error) {
+	root := path.Join("downloads", dir)
+	from := path.Join(root, tf.Name)
+	if !strings.HasPrefix(from, root+"/") || path.IsAbs(tf.Name) || path.Clean(tf.Name) == ".." || strings.HasPrefix(path.Clean(tf.Name), "../") {
 		return file{}, fmt.Errorf("file %q is outside the download folder", tf.Name)
 	}
 	base := path.Base(tf.Name)
@@ -81,15 +82,16 @@ func (f file) isSample() bool {
 }
 
 // Plan says where each file of a finished torrent goes. kind is "movie"
-// or "series"; year 0 means none.
-func Plan(kind, title string, year int, files []transmission.File) ([]Link, error) {
+// or "series"; year 0 means none. dir is the torrent's own folder under
+// downloads/ ("" for downloads/ itself); file names are relative to it.
+func Plan(kind, title string, year int, dir string, files []transmission.File) ([]Link, error) {
 	name := CleanTitle(title)
 	if name == "" {
 		return nil, errors.New("the title is empty")
 	}
 	var videos, subs []file
 	for _, tf := range files {
-		f, err := newFile(tf)
+		f, err := newFile(dir, tf)
 		if err != nil {
 			return nil, err
 		}
@@ -108,7 +110,7 @@ func Plan(kind, title string, year int, files []transmission.File) ([]Link, erro
 	case "movie":
 		return planMovie(path.Join("library/Movies", folder), folder, videos, subs), nil
 	case "series":
-		return planSeries(path.Join("library/Shows", folder), videos, subs, files), nil
+		return planSeries(path.Join("library/Shows", folder), path.Join("downloads", dir), videos, subs, files), nil
 	}
 	return nil, fmt.Errorf("unknown kind %q", kind)
 }
@@ -208,7 +210,7 @@ func matchSubtitle(s file, videos []placed) (placed, string, bool) {
 
 // planSeries links every video and subtitle into the show's folder,
 // keeping the torrent's own paths; Jellyfin reads S01E02 from the names.
-func planSeries(dir string, videos, subs []file, all []transmission.File) []Link {
+func planSeries(dir, root string, videos, subs []file, all []transmission.File) []Link {
 	keep := map[string]bool{}
 	for _, f := range append(append([]file{}, videos...), subs...) {
 		keep[f.rel] = true
@@ -216,7 +218,7 @@ func planSeries(dir string, videos, subs []file, all []transmission.File) []Link
 	var links []Link
 	for _, tf := range all { // the torrent's order
 		if keep[tf.Name] {
-			links = append(links, Link{path.Join("downloads", tf.Name), path.Join(dir, tf.Name)})
+			links = append(links, Link{path.Join(root, tf.Name), path.Join(dir, tf.Name)})
 		}
 	}
 	return links

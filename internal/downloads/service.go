@@ -38,6 +38,7 @@ type Torrents interface {
 	Get(ctx context.Context, hashes []string) (map[string]transmission.Torrent, error)
 	Remove(ctx context.Context, hash string, deleteData bool) error
 	Stop(ctx context.Context, hash string) error
+	Place(ctx context.Context, hash, dir string) error
 }
 
 // Library is Jellyfin's library.
@@ -129,9 +130,17 @@ func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Downlo
 	if err != nil {
 		return Download{}, false, err
 	}
-	hash, name, _, err := s.t.Add(ctx, magnet, in.File, filepath.Join(s.dataDir, "downloads"))
+	hash, name, duplicate, err := s.t.Add(ctx, magnet, in.File, filepath.Join(s.dataDir, "downloads"))
 	if err != nil {
 		return Download{}, false, err
+	}
+	// Each download gets its own folder, so two torrents of the same
+	// release never share files (and removing one never takes the
+	// other's). One Transmission already had stays where it is.
+	if !duplicate {
+		if err := s.t.Place(ctx, hash, filepath.Join(s.dataDir, "downloads", hash)); err != nil {
+			return Download{}, false, err
+		}
 	}
 	if have, err := s.store.GetDownload(ctx, hash); err == nil {
 		return fromRow(have), true, nil
@@ -243,17 +252,13 @@ func (s *Service) check(ctx context.Context, r db.Download, t transmission.Torre
 	case !known:
 		r.State, r.Reason = "failed", "removed from Transmission"
 		return s.store.UpdateDownload(ctx, r)
-	case t.Error != "":
+	case t.LocalError || t.PercentDone < 1:
+		// A tracker warning shows but doesn't stop a finished download
+		// from being filed; a problem with the data does.
 		if r.Reason == t.Error {
 			return nil
 		}
 		r.Reason = t.Error
-		return s.store.UpdateDownload(ctx, r)
-	case t.PercentDone < 1:
-		if r.Reason == "" {
-			return nil
-		}
-		r.Reason = ""
 		return s.store.UpdateDownload(ctx, r)
 	}
 	return s.file(ctx, r, t)
@@ -261,7 +266,7 @@ func (s *Service) check(ctx context.Context, r db.Download, t transmission.Torre
 
 // file links a finished torrent into the library and records the links.
 func (s *Service) file(ctx context.Context, r db.Download, t transmission.Torrent) error {
-	links, err := library.Plan(r.Kind, r.Title, r.Year, t.Files)
+	links, err := library.Plan(r.Kind, r.Title, r.Year, r.Hash, t.Files)
 	if err != nil {
 		r.State, r.Reason = "failed", err.Error()
 		return s.store.UpdateDownload(ctx, r)
@@ -326,8 +331,8 @@ func (s *Service) Remove(ctx context.Context, hash string, deleteFiles bool) err
 	return nil
 }
 
-// Edit corrects kind, title and year. A filed download is filed again
-// under the new details (nothing is downloaded again).
+// Edit corrects kind, title and year. A filed (or failed) download is
+// filed again under the new details (nothing is downloaded again).
 func (s *Service) Edit(ctx context.Context, hash, kind, title string, year int) error {
 	clean, err := validate(kind, title, year)
 	if err != nil {
@@ -337,7 +342,9 @@ func (s *Service) Edit(ctx context.Context, hash, kind, title string, year int) 
 	if err != nil {
 		return err
 	}
-	refile := r.State == "filed"
+	// Filed ones are filed again under the new details; failed ones are
+	// tried again (e.g. after the media folder was fixed).
+	refile := r.State == "filed" || r.State == "failed"
 	if refile {
 		links, err := s.store.Links(ctx, hash)
 		if err != nil {

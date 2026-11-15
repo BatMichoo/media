@@ -207,3 +207,45 @@ func TestStreamAcceptsDashedID(t *testing.T) {
 		assert.Equal(t, 404, do(streamRouter(up), "GET", bad, nil).Code, bad)
 	}
 }
+
+func TestStreamOnlyPlayerEndpoints(t *testing.T) {
+	up := &fakeUpstream{reply: func(string) *http.Response { return resp(200, map[string]string{"Content-Type": "video/mp4"}, "v") }}
+	r := streamRouter(up)
+	ms := "fedcba9876543210fedcba9876543210"
+	for _, p := range []string{
+		"/stream/Videos/" + vid + "/stream?static=true",
+		"/stream/Videos/" + vid + "/stream.mkv?static=true",
+		"/stream/videos/" + vid + "/master.m3u8?a=1",
+		"/stream/videos/" + vid + "/main.m3u8?a=1",
+		"/stream/videos/" + vid + "/hls1/main/12.mp4?a=1",
+		"/stream/videos/" + vid + "/hls1/main/-1.mp4",
+		"/stream/Videos/" + vid + "/" + ms + "/Subtitles/3/0/Stream.vtt",
+	} {
+		assert.Equal(t, 200, do(r, "GET", p, nil).Code, p)
+	}
+	n := len(up.got)
+	for _, p := range []string{
+		"/stream/Videos/" + vid + "/" + ms + "/Attachments/0",
+		"/stream/Videos/" + vid + "/AdditionalParts",
+		"/stream/Videos/" + vid + "/" + ms + "/Subtitles/3/0/Stream.ass",
+		"/stream/Videos/" + vid + "/live.m3u8",
+	} {
+		assert.Equal(t, 404, do(r, "GET", p, nil).Code, p)
+	}
+	assert.Len(t, up.got, n, "refused paths never reach Jellyfin")
+}
+
+func TestStreamContentTypeAndSandbox(t *testing.T) {
+	// Whatever Jellyfin says, nothing from /stream is served as a page.
+	up := &fakeUpstream{reply: func(string) *http.Response {
+		return resp(200, map[string]string{"Content-Type": "text/html"}, "<script>alert(1)</script>")
+	}}
+	w := do(streamRouter(up), "GET", "/stream/Videos/"+vid+"/stream", nil)
+	assert.Equal(t, "application/octet-stream", w.Header().Get("Content-Type"))
+	assert.Equal(t, "sandbox", w.Header().Get("Content-Security-Policy"))
+	for _, ct := range []string{"video/mp4", "audio/aac", "text/vtt; charset=utf-8", "application/vnd.apple.mpegurl"} {
+		up := &fakeUpstream{reply: func(string) *http.Response { return resp(200, map[string]string{"Content-Type": ct}, "x") }}
+		w := do(streamRouter(up), "GET", "/stream/Videos/"+vid+"/stream", nil)
+		assert.Equal(t, ct, w.Header().Get("Content-Type"))
+	}
+}

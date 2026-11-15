@@ -20,8 +20,12 @@ type Upstream interface {
 }
 
 var (
-	// Only video endpoints of one item go through /stream.
-	streamPath = regexp.MustCompile(`^/[Vv]ideos/([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/`)
+	// Only what the player uses goes through /stream: the file itself, HLS
+	// playlists and segments, and WebVTT subtitles. Ids come plain (32 hex)
+	// or as dashed GUIDs (in Jellyfin's HLS addresses).
+	streamPath = regexp.MustCompile(`^/[Vv]ideos/` + jfID + `/(` +
+		`stream(\.[a-z0-9]+)?|master\.m3u8|main\.m3u8|hls1/[A-Za-z0-9_]+/-?[0-9]+\.(mp4|ts|m4s|aac)|` +
+		jfID + `/Subtitles/[0-9]+/[0-9]+/Stream\.vtt)$`)
 	itemID     = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	uriAttr    = regexp.MustCompile(`URI="([^"]*)"`)
 
@@ -30,6 +34,21 @@ var (
 		"Cache-Control", "Last-Modified", "ETag"}
 	imageTypes = map[string]bool{"Primary": true, "Backdrop": true, "Thumb": true}
 )
+
+const jfID = `([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`
+
+// safeType keeps media, playlist and subtitle types; anything else (a
+// video file's own idea of its type included) is served as plain bytes,
+// never as a page on the app's site.
+func safeType(ct string) string {
+	t := strings.ToLower(strings.TrimSpace(strings.SplitN(ct, ";", 2)[0]))
+	switch {
+	case strings.HasPrefix(t, "video/"), strings.HasPrefix(t, "audio/"), strings.HasPrefix(t, "image/"),
+		t == "text/vtt", strings.Contains(t, "mpegurl"):
+		return ct
+	}
+	return "application/octet-stream"
+}
 
 // StreamURL turns a Jellyfin-relative video URL into the app's own,
 // without any token.
@@ -107,16 +126,21 @@ func (s *streamer) image(c *gin.Context) {
 	_, _ = io.Copy(c.Writer, resp.Body)
 }
 
-// copyHeaders copies the allowed response headers, except skip.
+// copyHeaders copies the allowed response headers, except skip, with a
+// safe Content-Type, and sandboxes anything a browser might still render.
 func copyHeaders(c *gin.Context, resp *http.Response, skip ...string) {
 	for _, k := range forwardResponse {
 		if contains(skip, k) {
 			continue
 		}
 		if v := resp.Header.Get(k); v != "" {
+			if k == "Content-Type" {
+				v = safeType(v)
+			}
 			c.Header(k, v)
 		}
 	}
+	c.Header("Content-Security-Policy", "sandbox")
 }
 
 func contains(xs []string, s string) bool {

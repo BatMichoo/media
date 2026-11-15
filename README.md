@@ -16,7 +16,8 @@ only be reachable through that proxy).
   posters and descriptions, and converts video a browser can't play. The
   app sets it up on its own the first time (account, the Movies and Shows
   libraries, hardware conversion) and never shows Jellyfin to anyone.
-- **Transmission** (hidden) downloads into `downloads/`.
+- **Transmission** (hidden) downloads each torrent into its own folder,
+  `downloads/<hash>/` (unfinished ones too, never inside its container).
 - **The app** files finished downloads into `library/Movies/<Title> (<Year>)/`
   or `library/Shows/<Title>/` with hard links (no copies, the torrent keeps
   seeding), stops seeding 72 hours after a download finishes, keeps each

@@ -94,7 +94,7 @@ func TestPlan(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := Plan(c.kind, c.title, c.year, c.files)
+			got, err := Plan(c.kind, c.title, c.year, "", c.files)
 			require.NoError(t, err)
 			assert.Equal(t, c.want, got)
 		})
@@ -103,18 +103,18 @@ func TestPlan(t *testing.T) {
 
 func TestPlanNoVideo(t *testing.T) {
 	for _, kind := range []string{"movie", "series"} {
-		_, err := Plan(kind, "X", 2000, []transmission.File{f("readme.txt", 1), f("s/sample.mkv", MB)})
+		_, err := Plan(kind, "X", 2000, "", []transmission.File{f("readme.txt", 1), f("s/sample.mkv", MB)})
 		assert.ErrorIs(t, err, ErrNoVideo, kind)
 	}
 }
 
 func TestPlanBadInput(t *testing.T) {
-	_, err := Plan("music", "X", 2000, []transmission.File{f("a.mkv", GB)})
+	_, err := Plan("music", "X", 2000, "", []transmission.File{f("a.mkv", GB)})
 	assert.Error(t, err)
-	_, err = Plan("movie", "???", 2000, []transmission.File{f("a.mkv", GB)})
+	_, err = Plan("movie", "???", 2000, "", []transmission.File{f("a.mkv", GB)})
 	assert.Error(t, err)
 	// A path that would climb out of downloads/ is refused.
-	_, err = Plan("series", "X", 0, []transmission.File{f("../../etc/x.mkv", GB)})
+	_, err = Plan("series", "X", 0, "", []transmission.File{f("../../etc/x.mkv", GB)})
 	assert.Error(t, err)
 }
 
@@ -125,4 +125,12 @@ func TestCleanTitle(t *testing.T) {
 	assert.Equal(t, "ab", CleanTitle("a\x00\tb"))
 	assert.Equal(t, "", CleanTitle("???"))
 	assert.Equal(t, "", CleanTitle(" . "))
+}
+
+func TestPlanOwnFolder(t *testing.T) {
+	got, err := Plan("series", "S", 0, "ab12", []transmission.File{f("Pack/S01E01.mkv", GB)})
+	require.NoError(t, err)
+	assert.Equal(t, []Link{{"downloads/ab12/Pack/S01E01.mkv", "library/Shows/S/Pack/S01E01.mkv"}}, got)
+	_, err = Plan("series", "S", 0, "ab12", []transmission.File{f("../other/x.mkv", GB)})
+	assert.Error(t, err, "can't leave its own folder")
 }
