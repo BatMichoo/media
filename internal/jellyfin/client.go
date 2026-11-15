@@ -25,6 +25,7 @@ type Client struct {
 	URL, User, Password string
 	HTTP                *http.Client
 	DeviceID            string // stable per install; Jellyfin ties sessions to it
+	HWAccel             string // "vaapi" (default, Intel GPU) or "none" (CPU only)
 
 	mu     sync.Mutex
 	token  string

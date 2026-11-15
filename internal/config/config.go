@@ -31,6 +31,7 @@ type Config struct {
 	Addr      string // where to listen, e.g. :8080
 
 	JellyfinURL, JellyfinUser, JellyfinPassword             string
+	JellyfinHWAccel                                         string // vaapi (Intel GPU) or none (CPU)
 	TransmissionURL, TransmissionUser, TransmissionPassword string
 
 	DataDir      string        // holds downloads/ and library/
@@ -88,11 +89,16 @@ func Load(getenv func(string) string) (*Config, error) {
 		JellyfinUser:     required("JELLYFIN_USER"),
 		JellyfinPassword: required("JELLYFIN_PASSWORD"),
 
+		JellyfinHWAccel: orDefault("JELLYFIN_HWACCEL", "vaapi"),
+
 		TransmissionURL:      strings.TrimRight(orDefault("TRANSMISSION_URL", "http://transmission:9091"), "/"),
 		TransmissionUser:     required("TRANSMISSION_USER"),
 		TransmissionPassword: required("TRANSMISSION_PASSWORD"),
 
 		DataDir: orDefault("DATA_DIR", "/data"),
+	}
+	if c.JellyfinHWAccel != "vaapi" && c.JellyfinHWAccel != "none" {
+		errs = append(errs, fmt.Errorf("JELLYFIN_HWACCEL %q: must be vaapi or none", c.JellyfinHWAccel))
 	}
 	interval := orDefault("POLL_INTERVAL", "30s")
 	d, err := time.ParseDuration(interval)

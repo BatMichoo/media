@@ -16,3 +16,8 @@ test:
 check:
 	@test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run gofmt on the files above"; exit 1; }
 	go vet ./...
+
+# integration runs the app against the real Jellyfin and Transmission
+# images (scripts/integration.sh; needs Docker, takes a few minutes).
+integration:
+	scripts/integration.sh

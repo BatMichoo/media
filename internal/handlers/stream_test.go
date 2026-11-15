@@ -194,3 +194,16 @@ func TestCurrentUserName(t *testing.T) {
 func TestStreamURL(t *testing.T) {
 	assert.Equal(t, "/stream/videos/x/master.m3u8?a=1", StreamURL("/videos/x/master.m3u8?a=1&api_key=S"))
 }
+
+func TestStreamAcceptsDashedID(t *testing.T) {
+	// Jellyfin writes ids with dashes in its HLS addresses.
+	up := &fakeUpstream{reply: func(string) *http.Response {
+		return resp(200, map[string]string{"Content-Type": "application/vnd.apple.mpegurl"}, "#EXTM3U\n")
+	}}
+	dashed := "/stream/videos/01234567-89ab-cdef-0123-456789abcdef/master.m3u8?x=1"
+	w := do(streamRouter(up), "GET", dashed, nil)
+	assert.Equal(t, 200, w.Code)
+	for _, bad := range []string{"/stream/videos/01234567-89ab-cdef-0123/master.m3u8", "/stream/videos/0123456789ab-cdef-0123-456789abcdef/x"} {
+		assert.Equal(t, 404, do(streamRouter(up), "GET", bad, nil).Code, bad)
+	}
+}

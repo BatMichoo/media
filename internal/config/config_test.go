@@ -41,6 +41,15 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, 5432, c.DB.Port)
 	assert.Equal(t, "jf-secret", c.JellyfinPassword)
 	assert.Equal(t, "tr-secret", c.TransmissionPassword)
+	assert.Equal(t, "vaapi", c.JellyfinHWAccel)
+}
+
+func TestLoadHWAccel(t *testing.T) {
+	c, err := Load(env(map[string]string{"JELLYFIN_HWACCEL": "none"}))
+	require.NoError(t, err)
+	assert.Equal(t, "none", c.JellyfinHWAccel)
+	_, err = Load(env(map[string]string{"JELLYFIN_HWACCEL": "cuda"}))
+	assert.Error(t, err)
 }
 
 func TestLoadMissing(t *testing.T) {

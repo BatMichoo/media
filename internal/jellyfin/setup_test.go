@@ -100,6 +100,16 @@ func TestSetupRepeatChangesNothing(t *testing.T) {
 	assert.True(t, c.Ready())
 }
 
+func TestSetupNoHardware(t *testing.T) {
+	f, c := newFake(t)
+	c.HWAccel = "none"
+	configured(f, bothLibraries(), goodEncoding())
+	require.NoError(t, c.Setup(context.Background(), "/data/library"))
+	enc := f.find("POST /System/Configuration/encoding").Body
+	assert.Equal(t, "none", enc["HardwareAccelerationType"])
+	assert.Equal(t, false, enc["EnableHardwareEncoding"])
+}
+
 func TestSetupAddsOnlyMissingLibrary(t *testing.T) {
 	f, c := newFake(t)
 	configured(f, bothLibraries()[:1], goodEncoding())

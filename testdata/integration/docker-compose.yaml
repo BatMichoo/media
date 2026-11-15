@@ -1,0 +1,80 @@
+# For scripts/integration.sh: the media app with the real Jellyfin and
+# Transmission it runs with on the home server (same pinned images), a
+# Postgres, and a throwaway media folder (DATA). No GPU: conversion runs
+# on the CPU here.
+name: media-integration
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: media
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: media
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U media"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  jellyfin:
+    image: jellyfin/jellyfin:12.4.20261026-211555@sha256:fea863d0cd9ec445985d9c75fc6ed64e38a1d2766cf0c250a33d553f4fc1b771
+    user: "${MEDIA_UID:?}:${MEDIA_GID:?}"
+    volumes:
+      - jellyfin-config:/config
+      - jellyfin-cache:/cache
+      - ${DATA:?}/library:/data/library:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8096/health"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+
+  transmission:
+    image: lscr.io/linuxserver/transmission:4.1.4-r0-ls369@sha256:aaf349cd859ca9d5f34f394c56b8097c267a513283698adc4d07ee61d7cb1a85
+    environment:
+      PUID: ${MEDIA_UID:?}
+      PGID: ${MEDIA_GID:?}
+      USER: media
+      PASS: tr-test
+    volumes:
+      - transmission-config:/config
+      - ${DATA:?}:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:9091/transmission/rpc"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  media:
+    build: ../..
+    user: "${MEDIA_UID:?}:${MEDIA_GID:?}"
+    environment:
+      DB_HOST: db
+      DB_NAME: media
+      DB_USER: media
+      DB_PASS: test
+      LAN_DOMAIN: homeserver.lan
+      JELLYFIN_USER: media
+      JELLYFIN_PASSWORD: jf-test
+      JELLYFIN_HWACCEL: none # no GPU here
+      TRANSMISSION_USER: media
+      TRANSMISSION_PASSWORD: tr-test
+      POLL_INTERVAL: 2s
+    volumes:
+      - ${DATA:?}:/data
+    ports:
+      - "127.0.0.1:${PORT:?}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      jellyfin:
+        condition: service_healthy
+      transmission:
+        condition: service_healthy
+
+volumes:
+  jellyfin-config:
+  jellyfin-cache:
+  transmission-config:

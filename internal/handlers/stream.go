@@ -21,7 +21,7 @@ type Upstream interface {
 
 var (
 	// Only video endpoints of one item go through /stream.
-	streamPath = regexp.MustCompile(`^/[Vv]ideos/[0-9a-f]{32}/`)
+	streamPath = regexp.MustCompile(`^/[Vv]ideos/([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/`)
 	itemID     = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	uriAttr    = regexp.MustCompile(`URI="([^"]*)"`)
 

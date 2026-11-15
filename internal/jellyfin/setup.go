@@ -108,13 +108,24 @@ var hardware = map[string]any{
 	"EnableTonemapping":              false,
 }
 
+// software is conversion on the CPU only (no GPU, or as a fallback).
+var software = map[string]any{
+	"HardwareAccelerationType": "none",
+	"EnableHardwareEncoding":   false,
+	"EnableTonemapping":        false,
+}
+
 func (c *Client) ensureHardware(ctx context.Context) error {
 	var cfg map[string]any
 	if err := c.get(ctx, "/System/Configuration/encoding", nil, &cfg); err != nil {
 		return err
 	}
+	want := hardware
+	if c.HWAccel == "none" {
+		want = software
+	}
 	changed := false
-	for k, v := range hardware {
+	for k, v := range want {
 		if !sameJSON(cfg[k], v) {
 			cfg[k] = v
 			changed = true
