@@ -18,7 +18,7 @@ import (
 )
 
 func movie(name, title string, year int) jellyfin.Item {
-	return jellyfin.Item{ID: id(name), Type: "Movie", Name: name, Year: year,
+	return jellyfin.Item{ID: id(name), Type: "Movie", Name: name, Year: year, HasPrimary: true,
 		Path: "/data/library/Movies/" + title + "/" + title + ".mkv"}
 }
 
@@ -55,8 +55,29 @@ func TestHomeSections(t *testing.T) {
 	img, _ := doc.Find("#movies img").Attr("src")
 	assert.Equal(t, "/images/"+dune.ID+"/Primary?w=300", img)
 	assert.Equal(t, "Severance", strings.TrimSpace(doc.Find("#shows .card-title").Text()))
+	assert.Equal(t, 0, doc.Find("#shows img").Length(), "no poster in Jellyfin, no picture to break")
+	assert.Equal(t, "Severance", strings.TrimSpace(doc.Find("#shows .art-title").Text()), "the title stands in")
+	assert.True(t, doc.Find("#continue .media-card").First().HasClass("wide"))
+	assert.Equal(t, 1, doc.Find("#continue img").Length(), "Dune falls back to its poster, the episode has nothing")
 	assert.Equal(t, 1, doc.Find(`a[href="/add"]`).Length())
 	assert.Equal(t, "Media", strings.TrimSpace(doc.Find("header h3").Text()))
+}
+
+func TestCardPictures(t *testing.T) {
+	sev := id("sev")
+	ep := jellyfin.Item{ID: id("ep"), Type: "Episode", SeriesID: sev}
+	assert.Equal(t, "", itemCard(ep).Image, "no series poster")
+	ep.HasSeriesPrimary = true
+	assert.Equal(t, "/images/"+sev+"/Primary?w=300", itemCard(ep).Image)
+	assert.Equal(t, "/images/"+sev+"/Primary?w=300", wideCard(ep).Image, "no frame: the poster")
+	ep.HasPrimary = true
+	assert.Equal(t, "/images/"+ep.ID+"/Primary?w=480", wideCard(ep).Image, "the episode's own frame")
+
+	m := jellyfin.Item{ID: id("m"), Type: "Movie", HasPrimary: true}
+	assert.Equal(t, "/images/"+m.ID+"/Primary?w=300", wideCard(m).Image)
+	m.HasBackdrop = true
+	assert.Equal(t, "/images/"+m.ID+"/Backdrop?w=480", wideCard(m).Image)
+	assert.Equal(t, hue("Dune"), hue("Dune"), "the same tint each time")
 }
 
 func TestHomeJellyfinDown(t *testing.T) {
@@ -80,7 +101,7 @@ func TestNavFragment(t *testing.T) {
 	w, doc := a.get(t, "/movies", "HX-Request", "true", "HX-Target", "content")
 	assert.Equal(t, 200, w.Code)
 	assert.Equal(t, 0, doc.Find("header").Length(), "only the content")
-	assert.Equal(t, 1, doc.Find(".card").Length())
+	assert.Equal(t, 1, doc.Find(".media-card").Length())
 	_, doc = a.get(t, "/movies")
 	assert.Equal(t, 1, doc.Find("header").Length(), "a full page otherwise")
 }

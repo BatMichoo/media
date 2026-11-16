@@ -1,16 +1,28 @@
 {{/* A poster card. Input: card. */}}
 {{ define "media/card" }}
-<article class="card media-card">
+<article class="media-card{{ if .Wide }} wide{{ end }}">
   <a class="card-link" href="{{ .Href }}">
-    <img class="poster" loading="lazy" src="{{ .Image }}" alt="" />
-    {{ if .HasBar }}<div class="bar"><span style="width: {{ pct .Fraction }}%"></span></div>{{ end }}
-    <span class="card-title">{{ .Title }}</span>
-    {{ if .Sub }}<span class="card-sub">{{ .Sub }}</span>{{ end }}
+    {{ template "media/art" (themeDict "Image" .Image "Title" .Title "Hue" .Hue "Fraction" .Fraction "HasBar" .HasBar) }}
+    <span class="card-text">
+      <span class="card-title">{{ .Title }}</span>
+      {{ if .Sub }}<span class="card-sub">{{ .Sub }}</span>{{ end }}
+    </span>
   </a>
 </article>
 {{ end }}
 
-{{/* A horizontal row of cards with a heading. Input: dict Lang ID Heading More Cards Empty. */}}
+{{/* A picture frame: the picture over a tint with the title, so a missing
+   or broken picture still looks intended. The progress bar sits inside the
+   frame. Input: dict Image Title Hue Fraction HasBar. */}}
+{{ define "media/art" }}
+<span class="art" style="--tint: {{ .Hue }}">
+  <span class="art-title" aria-hidden="true">{{ .Title }}</span>
+  {{ if .Image }}<img class="art-img" loading="lazy" decoding="async" src="{{ .Image }}" alt="" onerror="this.remove()" />{{ end }}
+  {{ if .HasBar }}<span class="bar"><span style="width: {{ pct .Fraction }}%"></span></span>{{ end }}
+</span>
+{{ end }}
+
+{{/* A horizontal row of cards with a heading. Input: dict Lang ID Heading More Cards Empty Wide. */}}
 {{ define "media/row" }}
 <section class="row" id="{{ .ID }}">
   <div class="row-head">
@@ -18,7 +30,7 @@
     {{ if .More }}<a class="see-all" href="{{ .More }}">{{ t .Lang "see_all" }}</a>{{ end }}
   </div>
   {{ if .Cards }}
-  <div class="row-cards">{{ range .Cards }}{{ template "media/card" . }}{{ end }}</div>
+  <div class="row-cards{{ if .Wide }} wide{{ end }}">{{ range .Cards }}{{ template "media/card" . }}{{ end }}</div>
   {{ else if .Empty }}
   <p class="empty">{{ .Empty }}</p>
   {{ end }}

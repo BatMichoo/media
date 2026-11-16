@@ -1,13 +1,15 @@
 {{ define "media/show" }}
-<div class="media-page detail">
-  <img class="detail-poster" src="{{ .Image }}" alt="" />
-  <div class="detail-body">
-    <h1>{{ .Title }}</h1>
-    {{ if .Item.Overview }}<p class="overview">{{ .Item.Overview }}</p>{{ end }}
-  </div>
-</div>
 <div class="media-page">
+  <div class="detail{{ if .Backdrop }} has-backdrop{{ end }}">
+    {{ if .Backdrop }}<img class="detail-backdrop" src="{{ .Backdrop }}" alt="" onerror="this.remove()" />{{ end }}
+    <div class="detail-poster">{{ template "media/art" (themeDict "Image" .Image "Title" .Title "Hue" .Hue) }}</div>
+    <div class="detail-body">
+      <h1>{{ .Title }}</h1>
+      {{ if .Item.Overview }}<p class="overview">{{ .Item.Overview }}</p>{{ end }}
+    </div>
+  </div>
   {{ $lang := .Lang }}
+  {{ $hue := .Hue }}
   {{ range .Seasons }}
   <section class="season">
     <h2>{{ .Name }}</h2>
@@ -15,11 +17,11 @@
       {{ range .Episodes }}
       <li class="episode{{ if .Watched }} watched{{ end }}">
         <a href="/watch/{{ .ID }}">
+          <span class="episode-thumb">{{ template "media/art" (themeDict "Image" .Image "Title" "" "Hue" $hue "Fraction" .Fraction "HasBar" .HasBar) }}</span>
           <span class="episode-number">{{ .Number }}</span>
           <span class="episode-name">{{ .Name }}</span>
           {{ if .Watched }}<span class="episode-watched" title='{{ t $lang "watched" }}'>✓</span>{{ end }}
         </a>
-        {{ if .HasBar }}<div class="bar"><span style="width: {{ pct .Fraction }}%"></span></div>{{ end }}
       </li>
       {{ end }}
     </ol>

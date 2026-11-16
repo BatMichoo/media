@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net/http"
 
@@ -16,17 +17,53 @@ var errNotFound = errors.New("not found")
 
 func isJellyfinNotFound(err error) bool { return errors.Is(err, jellyfin.ErrNotFound) }
 
-// card is one poster: a movie, a series or an episode.
+// card is one poster: a movie, a series or an episode. Image is "" when
+// Jellyfin has no picture; the card then shows its title on a tint.
 type card struct {
 	Href, Image, Title, Sub string
 	Fraction                float64 // watched share, 0..1
 	HasBar                  bool
+	Wide                    bool // a 16:9 still instead of a 2:3 poster
+	Hue                     int  // the tint behind (or instead of) the picture
 }
 
-func poster(id string) string { return "/images/" + id + "/Primary?w=300" }
+func image(id, typ string, w int) string { return fmt.Sprintf("/images/%s/%s?w=%d", id, typ, w) }
+
+func poster(id string) string { return image(id, "Primary", 300) }
+
+// hue is a stable tint per title, so pictureless cards aren't all alike.
+func hue(s string) int {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return int(h.Sum32() % 360)
+}
+
+// posterOf is the 2:3 poster for it: its own, or an episode's series'.
+func posterOf(it jellyfin.Item) string {
+	switch {
+	case it.Type == "Episode" && it.HasSeriesPrimary && it.SeriesID != "":
+		return poster(it.SeriesID)
+	case it.Type != "Episode" && it.HasPrimary:
+		return poster(it.ID)
+	}
+	return ""
+}
+
+// stillOf is a 16:9 picture for it: an episode's frame, a backdrop, else "".
+func stillOf(it jellyfin.Item) string {
+	switch {
+	case it.Type == "Episode" && it.HasPrimary:
+		return image(it.ID, "Primary", 480)
+	case it.HasBackdrop:
+		return image(it.ID, "Backdrop", 480)
+	case it.Type == "Video" && it.HasPrimary: // an extra
+		return image(it.ID, "Primary", 480)
+	}
+	return ""
+}
 
 func itemCard(it jellyfin.Item) card {
-	c := card{Image: poster(it.ID), Title: it.DisplayTitle()}
+	c := card{Image: posterOf(it), Title: it.DisplayTitle()}
 	switch it.Type {
 	case "Series":
 		c.Href = "/shows/" + it.ID
@@ -34,14 +71,22 @@ func itemCard(it jellyfin.Item) card {
 		c.Href = "/watch/" + it.ID
 		c.Title = it.ShowTitle()
 		c.Sub = fmt.Sprintf("S%d · E%d · %s", it.ParentIndex, it.Index, it.Name)
-		if it.SeriesID != "" {
-			c.Image = poster(it.SeriesID)
-		}
 	default:
 		c.Href = "/movies/" + it.ID
 		if it.Year > 0 {
 			c.Sub = fmt.Sprint(it.Year)
 		}
+	}
+	c.Hue = hue(c.Title)
+	return c
+}
+
+// wideCard is itemCard as a 16:9 still, falling back to the poster.
+func wideCard(it jellyfin.Item) card {
+	c := itemCard(it)
+	c.Wide = true
+	if s := stillOf(it); s != "" {
+		c.Image = s
 	}
 	return c
 }
@@ -67,7 +112,7 @@ func (h *web) home(c *gin.Context) {
 			return err
 		}
 		for _, e := range cont {
-			cd := itemCard(e.Item)
+			cd := wideCard(e.Item)
 			cd.Href = "/watch/" + e.Item.ID
 			if e.Progress != nil {
 				cd.Fraction, cd.HasBar = watching.Fraction(*e.Progress), true
@@ -131,7 +176,9 @@ type movieView struct {
 	Lang        string
 	Item        jellyfin.Item
 	Title       string
-	Image       string
+	Image       string // "" = no poster
+	Backdrop    string // "" = none
+	Hue         int
 	Resume      float64 // seconds; 0 = start
 	Fraction    float64
 	Extras      []card
@@ -149,20 +196,34 @@ func (h *web) movie(c *gin.Context) {
 		h.unavailable(c, err)
 		return
 	}
-	v := movieView{Lang: lang(c), Item: it, Title: it.DisplayTitle(), Image: "/images/" + it.ID + "/Primary?w=600"}
+	v := movieView{Lang: lang(c), Item: it, Title: it.DisplayTitle()}
+	v.Image, v.Backdrop, v.Hue = detailImages(it, v.Title)
 	if p, ok, err := h.d.Watching.Get(ctx, CurrentUser(c).ID, it.ID); err == nil && ok && !p.Finished {
 		v.Resume, v.Fraction = p.Watched, watching.Fraction(p)
 	}
 	if extras, err := h.d.Catalog.Extras(ctx, it.ID); err == nil {
 		for _, x := range extras {
-			v.Extras = append(v.Extras, card{Href: "/watch/" + x.ID, Image: poster(x.ID), Title: x.Name})
+			v.Extras = append(v.Extras, card{Href: "/watch/" + x.ID, Image: stillOf(x), Title: x.Name, Wide: true, Hue: hue(x.Name)})
 		}
 	}
 	h.renderTitled(c, http.StatusOK, "media/movie", v.Title, v)
 }
 
+// detailImages are a movie or series page's poster and backdrop ("" when
+// Jellyfin has none) and its tint.
+func detailImages(it jellyfin.Item, title string) (img, backdrop string, h int) {
+	if it.HasPrimary {
+		img = image(it.ID, "Primary", 600)
+	}
+	if it.HasBackdrop {
+		backdrop = image(it.ID, "Backdrop", 1280)
+	}
+	return img, backdrop, hue(title)
+}
+
 type episodeView struct {
 	ID, Name string
+	Image    string // a frame from the episode, "" = none
 	Number   int
 	Watched  bool
 	Fraction float64
@@ -178,7 +239,9 @@ type showView struct {
 	Lang     string
 	Item     jellyfin.Item
 	Title    string
-	Image    string
+	Image    string // "" = no poster
+	Backdrop string // "" = none
+	Hue      int
 	Seasons  []seasonView
 	Continue string // the episode to play next, "" = none
 }
@@ -217,12 +280,13 @@ func (h *web) show(c *gin.Context) {
 	for _, s := range seasons {
 		names[s.Index] = s.Name
 	}
-	v := showView{Lang: l, Item: it, Title: it.DisplayTitle(), Image: "/images/" + it.ID + "/Primary?w=600"}
+	v := showView{Lang: l, Item: it, Title: it.DisplayTitle()}
+	v.Image, v.Backdrop, v.Hue = detailImages(it, v.Title)
 	for _, e := range eps {
 		if len(v.Seasons) == 0 || v.Seasons[len(v.Seasons)-1].Name != seasonName(l, names, e.ParentIndex) {
 			v.Seasons = append(v.Seasons, seasonView{Name: seasonName(l, names, e.ParentIndex)})
 		}
-		ev := episodeView{ID: e.ID, Name: e.Name, Number: e.Index}
+		ev := episodeView{ID: e.ID, Name: e.Name, Number: e.Index, Image: stillOf(e)}
 		if p, ok := prog[e.ID]; ok {
 			ev.Watched = p.Finished
 			if !p.Finished {

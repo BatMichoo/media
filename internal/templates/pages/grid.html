@@ -1,6 +1,9 @@
 {{ define "media/grid" }}
 <div class="media-page">
-  <h1>{{ .Heading }}</h1>
+  <div class="page-head">
+    <h1>{{ .Heading }}</h1>
+    {{ if .Cards }}<span class="count">{{ len .Cards }}</span>{{ end }}
+  </div>
   {{ if .Unavailable }}
   <p class="unavailable">{{ t .Lang "unavailable" }}</p>
   {{ else if .Cards }}

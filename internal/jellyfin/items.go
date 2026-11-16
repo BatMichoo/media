@@ -20,6 +20,9 @@ type Item struct {
 	RunTimeSeconds                           float64
 	PartCount                                int
 	DateCreated                              time.Time
+	// Which pictures Jellyfin has: the item's own poster (an episode's is
+	// a frame from the video) and backdrop, and an episode's series poster.
+	HasPrimary, HasBackdrop, HasSeriesPrimary bool
 }
 
 // DisplayTitle is the title the person typed when adding it (the folder
@@ -60,6 +63,9 @@ type apiItem struct {
 	RunTimeTicks                             int64
 	PartCount                                int
 	DateCreated                              time.Time
+	ImageTags                                map[string]string
+	BackdropImageTags                        []string
+	SeriesPrimaryImageTag                    string
 }
 
 func (a apiItem) item() Item {
@@ -68,6 +74,8 @@ func (a apiItem) item() Item {
 		Year: a.ProductionYear, ParentIndex: a.ParentIndexNumber, Index: a.IndexNumber,
 		RunTimeSeconds: float64(a.RunTimeTicks) / ticksPerSecond, PartCount: a.PartCount,
 		DateCreated: a.DateCreated,
+		HasPrimary:  a.ImageTags["Primary"] != "", HasBackdrop: len(a.BackdropImageTags) > 0,
+		HasSeriesPrimary: a.SeriesPrimaryImageTag != "",
 	}
 }
 

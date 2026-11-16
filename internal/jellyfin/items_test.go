@@ -32,13 +32,15 @@ func TestLatest(t *testing.T) {
 	f.json("GET /Items", map[string]any{"Items": []any{
 		map[string]any{"Id": "m1", "Type": "Movie", "Name": "Dune", "Path": "/p/Dune (2021)/x.mkv",
 			"ProductionYear": 2021, "RunTimeTicks": 90 * 60 * 10_000_000, "DateCreated": "2026-11-15T10:00:00.0000000Z",
-			"Overview": "Spice."},
+			"Overview": "Spice.", "ImageTags": map[string]any{"Primary": "t1"}, "BackdropImageTags": []any{}},
+		map[string]any{"Id": "e1", "Type": "Episode", "SeriesPrimaryImageTag": "t2", "BackdropImageTags": []any{"t3"}},
 	}})
 	items, err := c.Latest(context.Background(), "Movie", 12)
 	require.NoError(t, err)
-	require.Len(t, items, 1)
+	require.Len(t, items, 2)
 	assert.Equal(t, Item{ID: "m1", Type: "Movie", Name: "Dune", Path: "/p/Dune (2021)/x.mkv", Year: 2021,
-		RunTimeSeconds: 5400, Overview: "Spice.", DateCreated: items[0].DateCreated}, items[0])
+		RunTimeSeconds: 5400, Overview: "Spice.", DateCreated: items[0].DateCreated, HasPrimary: true}, items[0])
+	assert.Equal(t, Item{ID: "e1", Type: "Episode", HasBackdrop: true, HasSeriesPrimary: true}, items[1])
 	assert.Equal(t, 2026, items[0].DateCreated.Year())
 	q := f.find("GET /Items").Query
 	for _, want := range []string{"IncludeItemTypes=Movie", "Recursive=true", "SortBy=DateCreated",

@@ -1,7 +1,9 @@
 {{ define "media/downloads" }}
 <div class="media-page">
-  <div class="page-actions"><a class="btn-primary" href="/add">{{ t .Lang "add" }}</a></div>
-  <h1>{{ t .Lang "downloads.title" }}</h1>
+  <div class="page-head">
+    <h1>{{ t .Lang "downloads.title" }}</h1>
+    <a class="btn-primary" href="/add">{{ t .Lang "add" }}</a>
+  </div>
   {{ if .LinkProblem }}<p class="link-problem" role="alert">{{ printf (t .Lang "downloads.link_problem") .LinkProblem }}</p>{{ end }}
   {{ template "media/downloads-list" . }}
 </div>
@@ -15,27 +17,35 @@
   <ul class="downloads">
     {{ range .Rows }}
     <li class="download state-{{ .State }}">
-      <div class="download-main">
-        <strong>{{ .Label }}</strong>
+      <div class="download-head">
+        <strong class="download-title">{{ .Label }}</strong>
         <span class="chip-like">{{ t .Lang (printf "kind.%s" .Kind) }}</span>
         <span class="state">{{ t .Lang (printf "state.%s" .State) }}</span>
       </div>
-      <div class="download-info">
-        {{ if eq .State "downloading" }}
-        <div class="bar"><span style="width: {{ pct .Percent }}%"></span></div>
-        <span>{{ pct .Percent }}%</span>
-        {{- if .Size }} · <span>{{ printf (t .Lang "downloads.size") (size .Done) (size .Size) }}</span>{{ end }}
-        {{- if .RateDownload }} · <span>{{ rate .RateDownload }}</span>{{ end }}
-        {{- if .ETA }} · <span>{{ printf (t .Lang "downloads.time_left") (timeLeft .Lang .ETA) }}</span>{{ end }}
-        {{ end }}
-        {{ if .SeedingDone }}<span>{{ t .Lang "downloads.seeding_done" }}</span>
-        {{ else if not .SeedingUntil.IsZero }}<span>{{ printf (t .Lang "downloads.seeding_until") (when .SeedingUntil) }}</span>{{ end }}
-        {{ if .Reason }}<span class="reason">{{ .Reason }}</span>{{ end }}
-        {{ if .AddedByName }}<span class="added-by">{{ printf (t .Lang "downloads.added_by") .AddedByName }}</span>{{ end }}
+      {{ if eq .State "downloading" }}
+      <div class="progress">
+        <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ pct .Percent }}">
+          <span style="width: {{ pct .Percent }}%"></span>
+        </div>
+        <div class="progress-info">
+          <strong class="progress-pct">{{ pct .Percent }}%</strong>
+          {{ if .Size }}<span>{{ printf (t .Lang "downloads.size") (size .Done) (size .Size) }}</span>{{ end }}
+          {{ if .RateDownload }}<span>{{ rate .RateDownload }}</span>{{ end }}
+          {{ if .ETA }}<span>{{ printf (t .Lang "downloads.time_left") (timeLeft .Lang .ETA) }}</span>{{ end }}
+        </div>
       </div>
-      <div class="download-actions">
-        <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/edit" hx-target="#sheet" hx-swap="innerHTML">{{ t .Lang "edit" }}</button>
-        <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/remove" hx-target="#sheet" hx-swap="innerHTML">{{ t .Lang "remove" }}</button>
+      {{ end }}
+      {{ if .Reason }}<p class="reason">{{ .Reason }}</p>{{ end }}
+      <div class="download-foot">
+        <div class="download-meta">
+          {{ if .SeedingDone }}<span>{{ t .Lang "downloads.seeding_done" }}</span>
+          {{ else if not .SeedingUntil.IsZero }}<span>{{ printf (t .Lang "downloads.seeding_until") (when .SeedingUntil) }}</span>{{ end }}
+          {{ if .AddedByName }}<span>{{ printf (t .Lang "downloads.added_by") .AddedByName }}</span>{{ end }}
+        </div>
+        <div class="download-actions">
+          <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/edit" hx-target="#sheet" hx-swap="innerHTML">{{ t .Lang "edit" }}</button>
+          <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/remove" hx-target="#sheet" hx-swap="innerHTML">{{ t .Lang "remove" }}</button>
+        </div>
       </div>
     </li>
     {{ end }}
