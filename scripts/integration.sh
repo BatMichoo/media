@@ -61,6 +61,9 @@ compose run --rm --no-deps -T -v "$src:/out" --entrypoint /usr/lib/jellyfin-ffmp
 	-c:v libx264 -pix_fmt yuv420p -c:a aac -shortest -y /out/Test.Movie.2024.mkv ||
 	fail "can't make the test video"
 printf '1\n00:00:01,000 --> 00:00:05,000\nHello from the test\n' >"$src/Test.Movie.2024.en.srt"
+# A program and a description too: only the description is wanted.
+head -c 70000 /dev/urandom >"$src/setup.exe"
+printf 'Test Movie\n' >"$src/Test.Movie.2024.nfo"
 
 # 2. A torrent of that folder (no trackers; the data is already here).
 compose exec -T -u "$MEDIA_UID" transmission transmission-create -o /data/test.torrent /data/downloads/Test.Movie.2024 >/dev/null ||
@@ -87,16 +90,18 @@ src="$DATA/downloads/$hash/Test.Movie.2024"
 torrent() {
 	compose exec -T -e HASH="$hash" transmission sh -c '
 		sid=$(curl -s -u media:tr-test -D - -o /dev/null http://localhost:9091/transmission/rpc | grep -i "^X-Transmission-Session-Id" | tr -d "\r")
-		curl -s -u media:tr-test -H "$sid" -d "{\"method\":\"torrent-get\",\"arguments\":{\"ids\":[\"$HASH\"],\"fields\":[\"status\",\"sequential_download\"]}}" http://localhost:9091/transmission/rpc'
+		curl -s -u media:tr-test -H "$sid" -d "{\"method\":\"torrent-get\",\"arguments\":{\"ids\":[\"$HASH\"],\"fields\":[\"status\",\"sequential_download\",\"files\",\"fileStats\"]}}" http://localhost:9091/transmission/rpc'
 }
 torrent | grep -q '"sequential_download":true' || fail "not sequential: $(torrent)"
+# Files are listed by name; exactly one (setup.exe) is unwanted.
+[ "$(torrent | grep -o '"wanted":false' | wc -l)" = 1 ] || fail "setup.exe not left out: $(torrent)"
 app -o /dev/null "$url/downloads/$hash/pause" -X POST
 torrent | grep -q '"status":0' || fail "pause didn't stop it: $(torrent)"
 app "$url/downloads/list" | grep -q '/resume' || fail "no Resume button after pausing"
 app -o /dev/null "$url/downloads/$hash/resume" -X POST
 running() { ! torrent | grep -q '"status":0'; }
 wait_for running 30 || fail "resume didn't start it: $(torrent)"
-echo "sequential, pause: ok"
+echo "sequential, files picked, pause: ok"
 
 compose exec -T transmission transmission-remote -n media:tr-test -t "$hash" --verify >/dev/null ||
 	fail "can't make Transmission check the data"

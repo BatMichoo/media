@@ -136,7 +136,8 @@ func TestGetFields(t *testing.T) {
 		return ok(map[string]any{"torrents": []any{
 			map[string]any{"hashString": "AAA", "name": "a", "percentDone": 0.5, "rateDownload": 1000,
 				"sizeWhenDone": 4000, "leftUntilDone": 1000, "eta": 90, "error": 0, "errorString": "", "doneDate": 0, "status": 4, "sequential_download": true,
-				"files": []any{map[string]any{"name": "a/a.mkv", "length": 42}}},
+				"files":     []any{map[string]any{"name": "a/a.mkv", "length": 42}, map[string]any{"name": "a/x.exe", "length": 1}},
+				"fileStats": []any{map[string]any{"wanted": true}, map[string]any{"wanted": false}}},
 			map[string]any{"hashString": "bbb", "name": "b", "percentDone": 1.0, "rateDownload": 0,
 				"sizeWhenDone": 0, "leftUntilDone": 0, "eta": -1, "error": 3, "errorString": "No data found", "doneDate": done.Unix(), "status": 0,
 				"files": []any{}},
@@ -147,7 +148,7 @@ func TestGetFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []any{"aaa", "bbb", "ccc"}, f.calls[0].Arguments["ids"])
 	assert.ElementsMatch(t, []any{"hashString", "name", "percentDone", "rateDownload", "error",
-		"errorString", "files", "doneDate", "status", "sizeWhenDone", "leftUntilDone", "eta", "sequential_download"},
+		"errorString", "files", "doneDate", "status", "sizeWhenDone", "leftUntilDone", "eta", "sequential_download", "fileStats"},
 		f.calls[0].Arguments["fields"])
 	assert.Len(t, got, 2)
 	a := got["aaa"]
@@ -160,7 +161,7 @@ func TestGetFields(t *testing.T) {
 	assert.False(t, a.Stopped)
 	assert.True(t, a.Sequential)
 	assert.Equal(t, "", a.Error)
-	assert.Equal(t, []File{{Name: "a/a.mkv", Length: 42}}, a.Files)
+	assert.Equal(t, []File{{Name: "a/a.mkv", Length: 42, Wanted: true}, {Name: "a/x.exe", Length: 1}}, a.Files)
 	b := got["bbb"]
 	assert.True(t, b.Stopped)
 	assert.False(t, b.Sequential, "older Transmission leaves the field out")
@@ -210,6 +211,18 @@ func TestStartAndSequential(t *testing.T) {
 	require.NoError(t, c.SetSequential(context.Background(), "abc"))
 	assert.Equal(t, "torrent-set", f.calls[1].Method)
 	assert.Equal(t, map[string]any{"ids": []any{"abc"}, "sequential_download": true}, f.calls[1].Arguments)
+}
+
+func TestSetWanted(t *testing.T) {
+	f := &fake{}
+	_, c := f.server(t)
+	require.NoError(t, c.SetWanted(context.Background(), "abc", []int{0}, []int{1, 2}))
+	assert.Equal(t, map[string]any{"ids": []any{"abc"}, "files-wanted": []any{0.0}, "files-unwanted": []any{1.0, 2.0}}, f.calls[0].Arguments)
+	require.NoError(t, c.SetWanted(context.Background(), "abc", nil, []int{3}))
+	assert.Equal(t, map[string]any{"ids": []any{"abc"}, "files-unwanted": []any{3.0}}, f.calls[1].Arguments,
+		"an empty list would mean every file")
+	require.NoError(t, c.SetWanted(context.Background(), "abc", nil, nil))
+	assert.Len(t, f.calls, 2, "nothing to change, nothing sent")
 }
 
 func TestConfigureSession(t *testing.T) {

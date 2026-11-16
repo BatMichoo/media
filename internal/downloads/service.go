@@ -41,6 +41,7 @@ type Torrents interface {
 	Stop(ctx context.Context, hash string) error
 	Start(ctx context.Context, hash string) error
 	SetSequential(ctx context.Context, hash string) error
+	SetWanted(ctx context.Context, hash string, wanted, unwanted []int) error
 	Place(ctx context.Context, hash, dir string) error
 }
 
@@ -102,6 +103,9 @@ type Service struct {
 	t       Torrents
 	lib     Library
 	dataDir string
+	// Magnet links whose file list hasn't arrived yet: watched closely so
+	// unwanted files are left out as soon as it does.
+	pending map[string]bool
 
 	SeedFor time.Duration    // how long a finished torrent seeds
 	Now     func() time.Time // the clock
@@ -110,7 +114,7 @@ type Service struct {
 
 // New makes the service; seeding lasts 72 hours.
 func New(store Store, t Torrents, lib Library, dataDir string) *Service {
-	return &Service{store: store, t: t, lib: lib, dataDir: dataDir,
+	return &Service{store: store, t: t, lib: lib, dataDir: dataDir, pending: map[string]bool{},
 		SeedFor: 72 * time.Hour, Now: time.Now, Log: log.Default()}
 }
 
@@ -158,6 +162,22 @@ func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Downlo
 	hash, name, duplicate, err := s.t.Add(ctx, magnet, in.File, filepath.Join(s.dataDir, "downloads"))
 	if err != nil {
 		return Download{}, false, err
+	}
+	// Only videos, subtitles and .nfo files download. A .torrent file's
+	// list is known now, before anything starts; a magnet link's arrives
+	// once it runs, and CheckPending catches it then.
+	if !duplicate {
+		live, err := s.t.Get(ctx, []string{hash})
+		if err != nil {
+			return Download{}, false, err
+		}
+		if t := live[hash]; len(t.Files) > 0 {
+			if err := s.selectFiles(ctx, t); err != nil {
+				return Download{}, false, err
+			}
+		} else {
+			s.pending[hash] = true
+		}
 	}
 	// Each download gets its own folder, so two torrents of the same
 	// release never share files (and removing one never takes the
@@ -224,6 +244,54 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 	return out, nil
 }
 
+// selectFiles marks t's wanted files (library.Wanted) and unmarks the
+// rest, changing only what differs.
+func (s *Service) selectFiles(ctx context.Context, t transmission.Torrent) error {
+	var want, skip []int
+	for i, f := range t.Files {
+		switch w := library.Wanted(f); {
+		case w && !f.Wanted:
+			want = append(want, i)
+		case !w && f.Wanted:
+			skip = append(skip, i)
+		}
+	}
+	return s.t.SetWanted(ctx, t.Hash, want, skip)
+}
+
+// CheckPending picks the files of magnet links whose file list has
+// arrived since they were added.
+func (s *Service) CheckPending(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.pending) == 0 {
+		return nil
+	}
+	hashes := make([]string, 0, len(s.pending))
+	for h := range s.pending {
+		hashes = append(hashes, h)
+	}
+	live, err := s.t.Get(ctx, hashes)
+	if err != nil {
+		return fmt.Errorf("transmission: %w", err)
+	}
+	var errs []error
+	for _, h := range hashes {
+		t, ok := live[h]
+		switch {
+		case !ok:
+			delete(s.pending, h)
+		case len(t.Files) > 0:
+			if err := s.selectFiles(ctx, t); err != nil {
+				errs = append(errs, fmt.Errorf("pick files %s: %w", h, err))
+				continue
+			}
+			delete(s.pending, h)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // seedingOver is true once a finished torrent has seeded long enough.
 func (s *Service) seedingOver(t transmission.Torrent) bool {
 	return !t.DoneDate.IsZero() && s.Now().Sub(t.DoneDate) > s.SeedFor
@@ -266,18 +334,28 @@ func (s *Service) Resume(ctx context.Context, hash string) error {
 	return s.store.UpdateDownload(ctx, r)
 }
 
-// Run polls every interval until ctx ends.
+// Run polls every interval until ctx ends, and checks new magnet links
+// for their file list every couple of seconds.
 func (s *Service) Run(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
+	fast := time.NewTicker(2 * time.Second)
+	defer fast.Stop()
 	for {
 		if err := s.Poll(ctx); err != nil && ctx.Err() == nil {
 			s.Log.Printf("downloads: %v", err)
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
+		for waiting := true; waiting; {
+			select {
+			case <-ctx.Done():
+				return
+			case <-fast.C:
+				if err := s.CheckPending(ctx); err != nil && ctx.Err() == nil {
+					s.Log.Printf("downloads: %v", err)
+				}
+			case <-t.C:
+				waiting = false
+			}
 		}
 	}
 }
@@ -310,6 +388,12 @@ func (s *Service) Poll(ctx context.Context) error {
 			if err := s.check(ctx, r, t, ok); err != nil {
 				errs = append(errs, err)
 			}
+		}
+		if ok && r.State == "downloading" && len(t.Files) > 0 && t.PercentDone < 1 {
+			if err := s.selectFiles(ctx, t); err != nil {
+				errs = append(errs, fmt.Errorf("pick files %s: %w", r.Title, err))
+			}
+			delete(s.pending, r.Hash)
 		}
 		if ok && t.PercentDone < 1 && !t.Sequential {
 			if err := s.t.SetSequential(ctx, r.Hash); err != nil {
@@ -410,6 +494,7 @@ func (s *Service) Remove(ctx context.Context, hash string, deleteFiles bool) err
 			return err
 		}
 	}
+	delete(s.pending, hash)
 	if err := s.store.DeleteDownload(ctx, r.Hash); err != nil {
 		return err
 	}

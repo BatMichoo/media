@@ -3,6 +3,7 @@ package downloads
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,18 +23,20 @@ const GB = int64(1) << 30
 
 // fakeTorrents is Transmission in memory.
 type fakeTorrents struct {
-	mu       sync.Mutex
-	torrents map[string]transmission.Torrent
-	adds     int
-	removed  map[string]bool // hash -> deleteData
-	stopped  []string
-	started  []string
-	seq      []string
-	placed   map[string]string
-	nextHash string
-	getErr   error
-	gate     chan struct{} // when set, Get waits for it (to hold a poll mid-round)
-	inGet    chan struct{}
+	mu        sync.Mutex
+	torrents  map[string]transmission.Torrent
+	adds      int
+	removed   map[string]bool // hash -> deleteData
+	stopped   []string
+	started   []string
+	seq       []string
+	wantSet   []string // "hash +0,1 -2" per SetWanted call
+	placed    map[string]string
+	nextHash  string
+	nextFiles []transmission.File // the next added torrent's files (a .torrent file's)
+	getErr    error
+	gate      chan struct{} // when set, Get waits for it (to hold a poll mid-round)
+	inGet     chan struct{}
 }
 
 func newFakeTorrents() *fakeTorrents {
@@ -47,7 +50,7 @@ func (f *fakeTorrents) Add(_ context.Context, magnet string, file []byte, dir st
 	h := f.nextHash
 	_, dup := f.torrents[h]
 	if !dup {
-		f.torrents[h] = transmission.Torrent{Hash: h, Name: "Torrent " + h}
+		f.torrents[h] = transmission.Torrent{Hash: h, Name: "Torrent " + h, Files: f.nextFiles}
 	}
 	return h, "Torrent " + h, dup, nil
 }
@@ -114,6 +117,26 @@ func (f *fakeTorrents) SetSequential(_ context.Context, hash string) error {
 	f.seq = append(f.seq, hash)
 	t := f.torrents[hash]
 	t.Sequential = true
+	f.torrents[hash] = t
+	return nil
+}
+
+func (f *fakeTorrents) SetWanted(_ context.Context, hash string, wanted, unwanted []int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(wanted)+len(unwanted) == 0 {
+		return nil
+	}
+	f.wantSet = append(f.wantSet, fmt.Sprintf("%s +%v -%v", hash, wanted, unwanted))
+	t := f.torrents[hash]
+	files := append([]transmission.File(nil), t.Files...)
+	for _, i := range wanted {
+		files[i].Wanted = true
+	}
+	for _, i := range unwanted {
+		files[i].Wanted = false
+	}
+	t.Files = files
 	f.torrents[hash] = t
 	return nil
 }
@@ -498,6 +521,50 @@ func TestPollMakesDownloadsSequential(t *testing.T) {
 	assert.Equal(t, []string{"old"}, e.t.seq, "only unfinished ones not in order yet")
 	require.NoError(t, e.s.Poll(context.Background()))
 	assert.Equal(t, []string{"old"}, e.t.seq, "once")
+}
+
+func TestAddTorrentFilePicksFilesBeforeStart(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	// A .torrent file: Transmission knows the files as soon as it's added.
+	e.t.nextFiles = []transmission.File{
+		{Name: "D/D.mkv", Length: 2 * GB, Wanted: true}, {Name: "D/setup.exe", Length: 1, Wanted: true},
+		{Name: "D/d.nfo", Length: 1, Wanted: true}, {Name: "D/D.en.srt", Length: 1, Wanted: true}}
+	_, _, err := e.s.Add(ctx, alice, AddInput{File: []byte("x"), Kind: "movie", Title: "Dune", Year: 2021})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"h1 +[] -[1]"}, e.t.wantSet, "the program is left out")
+	assert.Empty(t, e.s.pending)
+}
+
+func TestMagnetPicksFilesOnceKnown(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	_, _, err := e.s.Add(ctx, alice, AddInput{Magnet: "magnet:?xt=urn:btih:x", Kind: "movie", Title: "Dune", Year: 2021})
+	require.NoError(t, err)
+	require.NoError(t, e.s.CheckPending(ctx))
+	assert.Empty(t, e.t.wantSet, "no file list yet")
+	assert.True(t, e.s.pending["h1"])
+
+	e.t.set(transmission.Torrent{Hash: "h1", Files: []transmission.File{
+		{Name: "D/D.mkv", Length: 2 * GB, Wanted: true}, {Name: "D/D.mkv.exe", Length: 1, Wanted: true},
+		{Name: "D/Sample/sample.mkv", Length: 10 << 20, Wanted: true}}})
+	require.NoError(t, e.s.CheckPending(ctx))
+	assert.Equal(t, []string{"h1 +[] -[1 2]"}, e.t.wantSet)
+	assert.Empty(t, e.s.pending)
+	require.NoError(t, e.s.CheckPending(ctx))
+	assert.Len(t, e.t.wantSet, 1, "done once")
+}
+
+func TestPollPicksFiles(t *testing.T) {
+	// Added before this rule, or a duplicate: the poll fixes it.
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.1, Sequential: true, Files: []transmission.File{
+		{Name: "D/D.mkv", Length: 2 * GB, Wanted: true}, {Name: "D/virus.scr", Length: 1, Wanted: true}}})
+	require.NoError(t, e.s.Poll(context.Background()))
+	assert.Equal(t, []string{"h1 +[] -[1]"}, e.t.wantSet)
+	require.NoError(t, e.s.Poll(context.Background()))
+	assert.Len(t, e.t.wantSet, 1, "nothing left to change")
 }
 
 func TestPauseAndResumeDownloading(t *testing.T) {

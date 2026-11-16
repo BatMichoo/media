@@ -81,6 +81,16 @@ func (f file) isSample() bool {
 	return strings.Contains(strings.ToLower(f.rel), "sample") && f.size < sampleMax
 }
 
+// Wanted says whether a torrent's file is worth downloading: videos
+// (not samples), their subtitles and .nfo descriptions. Everything else,
+// programs and archives above all, is left out.
+func Wanted(tf transmission.File) bool {
+	base := path.Base(tf.Name)
+	ext := path.Ext(base)
+	f := file{rel: tf.Name, base: base, ext: ext, size: tf.Length}
+	return (f.isVideo() && !f.isSample()) || f.isSubtitle() || strings.EqualFold(ext, ".nfo")
+}
+
 // Plan says where each file of a finished torrent goes. kind is "movie"
 // or "series"; year 0 means none. dir is the torrent's own folder under
 // downloads/ ("" for downloads/ itself); file names are relative to it.

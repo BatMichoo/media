@@ -141,3 +141,16 @@ func TestPlanOwnFolder(t *testing.T) {
 	_, err = Plan("series", "S", 0, "ab12", []transmission.File{f("../other/x.mkv", GB)})
 	assert.Error(t, err, "can't leave its own folder")
 }
+
+func TestWanted(t *testing.T) {
+	for name, want := range map[string]bool{
+		"Movie/Movie.mkv": true, "Movie/MOVIE.MP4": true, "Movie/Movie.en.srt": true, "Movie/Subs/2_English.ass": true,
+		"Movie/movie.nfo": true, "Movie/Movie.NFO": true,
+		"Movie/setup.exe": false, "Movie/Movie.mkv.exe": false, "Movie/codec.msi": false, "Movie/run.bat": false,
+		"Movie/run.sh": false, "Movie/Movie.lnk": false, "Movie/Movie.scr": false, "Movie/payload.zip": false,
+		"Movie/Movie.rar": false, "Movie/poster.jpg": false, "Movie/readme.txt": false, "Movie/Movie.iso": false,
+	} {
+		assert.Equal(t, want, Wanted(transmission.File{Name: name, Length: 2 << 30}), name)
+	}
+	assert.False(t, Wanted(transmission.File{Name: "Movie/Sample/sample.mkv", Length: 20 << 20}), "a sample")
+}

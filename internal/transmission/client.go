@@ -33,6 +33,7 @@ type Client struct {
 type File struct {
 	Name   string
 	Length int64
+	Wanted bool // to be downloaded
 }
 
 // Torrent is what the app needs to know about a torrent.
@@ -82,7 +83,7 @@ func (c *Client) Add(ctx context.Context, magnet string, torrentFile []byte, dow
 }
 
 var getFields = []string{"hashString", "name", "percentDone", "rateDownload", "error",
-	"errorString", "files", "doneDate", "status", "sizeWhenDone", "leftUntilDone", "eta", "sequential_download"}
+	"errorString", "files", "doneDate", "status", "sizeWhenDone", "leftUntilDone", "eta", "sequential_download", "fileStats"}
 
 // Get returns the torrents with these hashes; unknown ones are absent.
 func (c *Client) Get(ctx context.Context, hashes []string) (map[string]Torrent, error) {
@@ -117,8 +118,10 @@ func (c *Client) Get(ctx context.Context, hashes []string) (map[string]Torrent, 
 		if t.DoneDate > 0 {
 			tor.DoneDate = time.Unix(t.DoneDate, 0)
 		}
-		for _, f := range t.Files {
-			tor.Files = append(tor.Files, File{Name: f.Name, Length: f.Length})
+		for i, f := range t.Files {
+			// Without fileStats (shouldn't happen) every file counts as wanted.
+			wanted := i >= len(t.FileStats) || t.FileStats[i].Wanted
+			tor.Files = append(tor.Files, File{Name: f.Name, Length: f.Length, Wanted: wanted})
 		}
 		got[tor.Hash] = tor
 	}
@@ -153,6 +156,23 @@ func (c *Client) Place(ctx context.Context, hash, dir string) error {
 	return c.call(ctx, "torrent-start", map[string]any{"ids": []string{hash}}, nil)
 }
 
+// SetWanted chooses which files of a torrent download, by their index
+// in Files. Either list may be empty (Transmission reads an empty list as
+// "every file", so an empty one isn't sent).
+func (c *Client) SetWanted(ctx context.Context, hash string, wanted, unwanted []int) error {
+	args := map[string]any{"ids": []string{hash}}
+	if len(wanted) > 0 {
+		args["files-wanted"] = wanted
+	}
+	if len(unwanted) > 0 {
+		args["files-unwanted"] = unwanted
+	}
+	if len(args) == 1 {
+		return nil
+	}
+	return c.call(ctx, "torrent-set", args, nil)
+}
+
 // ConfigureSession makes unfinished downloads go to downloadDir too (the
 // image's default "incomplete" folder is inside the container, on the
 // system disk), and turns off Transmission's own ratio and idle limits:
@@ -181,6 +201,9 @@ type rpcTorrent struct {
 		Name   string `json:"name"`
 		Length int64  `json:"length"`
 	} `json:"files"`
+	FileStats []struct {
+		Wanted bool `json:"wanted"`
+	} `json:"fileStats"`
 }
 
 // call sends one RPC request, doing the session-id handshake (409) once
