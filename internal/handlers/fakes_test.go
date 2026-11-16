@@ -180,7 +180,7 @@ func newApp(t *testing.T) *app {
 	r, err := NewWebRouter(Deps{
 		DB: pinger{}, Catalog: a.cat, Downloads: a.dl, Watching: a.w, Player: a.play,
 		Upstream:  &fakeUpstream{reply: func(string) *http.Response { return resp(200, nil, "") }},
-		LanDomain: "homeserver.lan", AuthURL: "https://auth.homeserver.lan",
+		LanDomain: "homeserver.lan", AuthURL: "https://auth.homeserver.lan", HomeServerURL: "https://homeserver.lan/",
 		LinkProblem: func() error { return a.link },
 	})
 	require.NoError(t, err)

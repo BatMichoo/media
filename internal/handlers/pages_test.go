@@ -60,7 +60,7 @@ func TestHomeSections(t *testing.T) {
 	assert.True(t, doc.Find("#continue .media-card").First().HasClass("wide"))
 	assert.Equal(t, 1, doc.Find("#continue img").Length(), "Dune falls back to its poster, the episode has nothing")
 	assert.Equal(t, 1, doc.Find(`a[href="/add"]`).Length())
-	assert.Equal(t, "Media", strings.TrimSpace(doc.Find("header h3").Text()))
+	assert.Equal(t, "Media", strings.TrimSpace(doc.Find("header h3 .app-crumb").Text()))
 }
 
 func TestCardPictures(t *testing.T) {
@@ -424,4 +424,13 @@ func TestPagesNeedUser(t *testing.T) {
 		a.r.ServeHTTP(w, httptest.NewRequest("GET", p, nil))
 		assert.Equal(t, 401, w.Code, p)
 	}
+}
+
+func TestHeaderLeadsHome(t *testing.T) {
+	a := newApp(t)
+	_, doc := a.get(t, "/")
+	assert.Equal(t, "https://homeserver.lan/", doc.Find("header a.home-crumb").AttrOr("href", ""))
+	assert.Contains(t, doc.Find("header .app-crumb").Text(), "Media")
+	_, doc = a.get(t, "/movies", "HX-Request", "true", "HX-Target", "content")
+	assert.Equal(t, 0, doc.Find(".home-crumb").Length(), "fragments have no header")
 }

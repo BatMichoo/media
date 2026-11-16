@@ -47,6 +47,19 @@ func (c *Config) AuthURL() string {
 	return u
 }
 
+// HomeServerURL is the home server's dashboard, e.g. https://homeserver.lan/:
+// the header's "Home ›" leads there. "" without a LAN domain.
+func (c *Config) HomeServerURL() string {
+	if c.LanDomain == "" {
+		return ""
+	}
+	u := "https://" + c.LanDomain
+	if c.HTTPSPort != 443 {
+		u += ":" + strconv.Itoa(c.HTTPSPort)
+	}
+	return u + "/"
+}
+
 // Load reads the settings through getenv (os.Getenv in main).
 func Load(getenv func(string) string) (*Config, error) {
 	var errs []error

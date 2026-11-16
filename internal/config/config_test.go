@@ -76,3 +76,14 @@ func TestAuthURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://auth.homeserver.lan:8443", c.AuthURL())
 }
+
+func TestHomeServerURL(t *testing.T) {
+	c, err := Load(env(nil))
+	require.NoError(t, err)
+	assert.Equal(t, "https://homeserver.lan/", c.HomeServerURL())
+	c, err = Load(env(map[string]string{"HTTPS_PORT": "8443"}))
+	require.NoError(t, err)
+	assert.Equal(t, "https://homeserver.lan:8443/", c.HomeServerURL())
+	c.LanDomain = ""
+	assert.Equal(t, "", c.HomeServerURL(), "no domain: no link")
+}

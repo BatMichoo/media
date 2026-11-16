@@ -72,7 +72,7 @@ func main() {
 
 	router, err := handlers.NewWebRouter(handlers.Deps{
 		DB: database, Catalog: jf, Player: jf, Downloads: dl, Watching: w, Upstream: jf,
-		LanDomain: cfg.LanDomain, AuthURL: cfg.AuthURL(),
+		LanDomain: cfg.LanDomain, AuthURL: cfg.AuthURL(), HomeServerURL: cfg.HomeServerURL(),
 		LinkProblem: func() error { return linkErr },
 	})
 	if err != nil {
