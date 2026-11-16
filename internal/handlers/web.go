@@ -60,6 +60,8 @@ func NewWebRouter(d Deps) (*gin.Engine, error) {
 	g.POST("/downloads/:hash/edit", h.postEdit)
 	g.GET("/downloads/:hash/remove", h.getRemove)
 	g.POST("/downloads/:hash/remove", h.postRemove)
+	g.POST("/downloads/:hash/pause", h.postPause)
+	g.POST("/downloads/:hash/resume", h.postResume)
 	g.POST("/lang", h.postLang)
 	h.registerPlayer(g)
 	return r, nil

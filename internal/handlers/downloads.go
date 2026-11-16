@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -246,3 +247,21 @@ func (h *web) postRemove(c *gin.Context) {
 	}
 	h.listWithToast(c, "toast.removed")
 }
+
+// pauseOrResume runs Pause or Resume and answers with the refreshed list.
+func (h *web) pauseOrResume(c *gin.Context, do func(ctx context.Context, hash string) error) {
+	err := do(c.Request.Context(), c.Param("hash"))
+	if errors.Is(err, downloads.ErrNotFound) {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	v := h.downloadsData(c)
+	if err != nil {
+		log.Printf("pause/resume: %v", err)
+		v.Toast = &theme.Toast{Kind: theme.ToastError, Title: i18n.T(v.Lang, "error.generic"), Lang: v.Lang}
+	}
+	h.fragment(c, http.StatusOK, "media/downloads-list", v)
+}
+
+func (h *web) postPause(c *gin.Context)  { h.pauseOrResume(c, h.d.Downloads.Pause) }
+func (h *web) postResume(c *gin.Context) { h.pauseOrResume(c, h.d.Downloads.Resume) }

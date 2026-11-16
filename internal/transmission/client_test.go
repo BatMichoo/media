@@ -103,7 +103,7 @@ func TestAddMagnet(t *testing.T) {
 	assert.False(t, dup)
 	require.Len(t, f.calls, 1)
 	assert.Equal(t, "torrent-add", f.calls[0].Method)
-	assert.Equal(t, map[string]any{"filename": "magnet:?xt=urn:btih:abcdef", "download-dir": "/data/downloads", "paused": true}, f.calls[0].Arguments)
+	assert.Equal(t, map[string]any{"filename": "magnet:?xt=urn:btih:abcdef", "download-dir": "/data/downloads", "paused": true, "sequential_download": true}, f.calls[0].Arguments)
 }
 
 func TestAddFileDuplicate(t *testing.T) {
@@ -135,7 +135,7 @@ func TestGetFields(t *testing.T) {
 	f := &fake{reply: func(call) map[string]any {
 		return ok(map[string]any{"torrents": []any{
 			map[string]any{"hashString": "AAA", "name": "a", "percentDone": 0.5, "rateDownload": 1000,
-				"sizeWhenDone": 4000, "leftUntilDone": 1000, "eta": 90, "error": 0, "errorString": "", "doneDate": 0, "status": 4,
+				"sizeWhenDone": 4000, "leftUntilDone": 1000, "eta": 90, "error": 0, "errorString": "", "doneDate": 0, "status": 4, "sequential_download": true,
 				"files": []any{map[string]any{"name": "a/a.mkv", "length": 42}}},
 			map[string]any{"hashString": "bbb", "name": "b", "percentDone": 1.0, "rateDownload": 0,
 				"sizeWhenDone": 0, "leftUntilDone": 0, "eta": -1, "error": 3, "errorString": "No data found", "doneDate": done.Unix(), "status": 0,
@@ -147,7 +147,7 @@ func TestGetFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []any{"aaa", "bbb", "ccc"}, f.calls[0].Arguments["ids"])
 	assert.ElementsMatch(t, []any{"hashString", "name", "percentDone", "rateDownload", "error",
-		"errorString", "files", "doneDate", "status", "sizeWhenDone", "leftUntilDone", "eta"},
+		"errorString", "files", "doneDate", "status", "sizeWhenDone", "leftUntilDone", "eta", "sequential_download"},
 		f.calls[0].Arguments["fields"])
 	assert.Len(t, got, 2)
 	a := got["aaa"]
@@ -158,10 +158,12 @@ func TestGetFields(t *testing.T) {
 	assert.Equal(t, 90*time.Second, a.ETA)
 	assert.True(t, a.DoneDate.IsZero())
 	assert.False(t, a.Stopped)
+	assert.True(t, a.Sequential)
 	assert.Equal(t, "", a.Error)
 	assert.Equal(t, []File{{Name: "a/a.mkv", Length: 42}}, a.Files)
 	b := got["bbb"]
 	assert.True(t, b.Stopped)
+	assert.False(t, b.Sequential, "older Transmission leaves the field out")
 	// -1 and -2 mean Transmission can't tell.
 	assert.Equal(t, time.Duration(0), b.ETA)
 	assert.True(t, b.DoneDate.Equal(done))
@@ -199,6 +201,17 @@ func TestStop(t *testing.T) {
 	assert.Equal(t, []any{"abc"}, f.calls[0].Arguments["ids"])
 }
 
+func TestStartAndSequential(t *testing.T) {
+	f := &fake{}
+	_, c := f.server(t)
+	require.NoError(t, c.Start(context.Background(), "abc"))
+	assert.Equal(t, "torrent-start", f.calls[0].Method)
+	assert.Equal(t, []any{"abc"}, f.calls[0].Arguments["ids"])
+	require.NoError(t, c.SetSequential(context.Background(), "abc"))
+	assert.Equal(t, "torrent-set", f.calls[1].Method)
+	assert.Equal(t, map[string]any{"ids": []any{"abc"}, "sequential_download": true}, f.calls[1].Arguments)
+}
+
 func TestConfigureSession(t *testing.T) {
 	// Unfinished downloads go straight to the media folder too (the image's
 	// default "incomplete" folder is inside the container), and the app
@@ -222,6 +235,7 @@ func TestAddPausedAndMove(t *testing.T) {
 	_, _, _, err := c.Add(context.Background(), "magnet:?xt=1", nil, "/data/downloads")
 	require.NoError(t, err)
 	assert.Equal(t, true, f.calls[0].Arguments["paused"], "added paused, so nothing lands before it has its own folder")
+	assert.Equal(t, true, f.calls[0].Arguments["sequential_download"], "pieces in order")
 	require.NoError(t, c.Place(context.Background(), "ab", "/data/downloads/ab"))
 	assert.Equal(t, "torrent-set-location", f.calls[1].Method)
 	assert.Equal(t, map[string]any{"ids": []any{"ab"}, "location": "/data/downloads/ab", "move": false}, f.calls[1].Arguments)

@@ -71,5 +71,8 @@
   "player.off": "Off",
   "player.fullscreen": "Fullscreen",
   "player.error": "This video can't be played right now.",
-  "error.title_long": "That title is too long for a folder name; shorten it."
+  "error.title_long": "That title is too long for a folder name; shorten it.",
+  "pause": "Pause",
+  "resume": "Resume",
+  "state.paused": "Paused"
 }

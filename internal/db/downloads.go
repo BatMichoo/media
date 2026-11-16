@@ -18,13 +18,14 @@ type Download struct {
 	AddedBy, AddedByName string
 	AddedAt              time.Time
 	State, Reason        string
+	Paused               bool // paused in the app
 }
 
-const downloadCols = `hash, kind, title, COALESCE(year, 0), name, added_by, added_by_name, added_at, state, reason`
+const downloadCols = `hash, kind, title, COALESCE(year, 0), name, added_by, added_by_name, added_at, state, reason, paused`
 
 func scanDownload(row interface{ Scan(...any) error }) (Download, error) {
 	var d Download
-	err := row.Scan(&d.Hash, &d.Kind, &d.Title, &d.Year, &d.Name, &d.AddedBy, &d.AddedByName, &d.AddedAt, &d.State, &d.Reason)
+	err := row.Scan(&d.Hash, &d.Kind, &d.Title, &d.Year, &d.Name, &d.AddedBy, &d.AddedByName, &d.AddedAt, &d.State, &d.Reason, &d.Paused)
 	return d, err
 }
 
@@ -37,9 +38,9 @@ func nullYear(y int) any {
 
 // InsertDownload records a new download.
 func (d *DB) InsertDownload(ctx context.Context, dl Download) error {
-	_, err := d.SQL.ExecContext(ctx, `INSERT INTO downloads (hash, kind, title, year, name, added_by, added_by_name, state, reason)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.AddedBy, dl.AddedByName, dl.State, dl.Reason)
+	_, err := d.SQL.ExecContext(ctx, `INSERT INTO downloads (hash, kind, title, year, name, added_by, added_by_name, state, reason, paused)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.AddedBy, dl.AddedByName, dl.State, dl.Reason, dl.Paused)
 	return err
 }
 
@@ -79,10 +80,10 @@ func (d *DB) ListDownloadsByState(ctx context.Context, state string) ([]Download
 	return d.listDownloads(ctx, "WHERE state = $1", state)
 }
 
-// UpdateDownload saves kind, title, year, name, state and reason.
+// UpdateDownload saves kind, title, year, name, state, reason and paused.
 func (d *DB) UpdateDownload(ctx context.Context, dl Download) error {
-	res, err := d.SQL.ExecContext(ctx, `UPDATE downloads SET kind = $2, title = $3, year = $4, name = $5, state = $6, reason = $7
-		WHERE hash = $1`, dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.State, dl.Reason)
+	res, err := d.SQL.ExecContext(ctx, `UPDATE downloads SET kind = $2, title = $3, year = $4, name = $5, state = $6, reason = $7,
+		paused = $8 WHERE hash = $1`, dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.State, dl.Reason, dl.Paused)
 	if err != nil {
 		return err
 	}

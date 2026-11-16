@@ -32,6 +32,8 @@ type Downloads interface {
 	List(ctx context.Context) ([]downloads.Download, error)
 	Remove(ctx context.Context, hash string, deleteFiles bool) error
 	Edit(ctx context.Context, hash, kind, title string, year int) error
+	Pause(ctx context.Context, hash string) error
+	Resume(ctx context.Context, hash string) error
 }
 
 // Watching is each person's progress and languages.

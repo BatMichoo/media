@@ -27,6 +27,8 @@ type fakeTorrents struct {
 	adds     int
 	removed  map[string]bool // hash -> deleteData
 	stopped  []string
+	started  []string
+	seq      []string
 	placed   map[string]string
 	nextHash string
 	getErr   error
@@ -92,6 +94,26 @@ func (f *fakeTorrents) Stop(_ context.Context, hash string) error {
 	f.stopped = append(f.stopped, hash)
 	t := f.torrents[hash]
 	t.Stopped = true
+	f.torrents[hash] = t
+	return nil
+}
+
+func (f *fakeTorrents) Start(_ context.Context, hash string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.started = append(f.started, hash)
+	t := f.torrents[hash]
+	t.Stopped = false
+	f.torrents[hash] = t
+	return nil
+}
+
+func (f *fakeTorrents) SetSequential(_ context.Context, hash string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seq = append(f.seq, hash)
+	t := f.torrents[hash]
+	t.Sequential = true
 	f.torrents[hash] = t
 	return nil
 }
@@ -462,6 +484,67 @@ func TestPollStopsAfter72h(t *testing.T) {
 	assert.False(t, y.SeedingDone)
 	assert.True(t, e.get(t, "old").SeedingDone)
 	assert.True(t, e.get(t, "done").SeedingDone)
+}
+
+func TestPollMakesDownloadsSequential(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "old", "Old", 2000)
+	e.addMovie(t, "new", "New", 2000)
+	e.addMovie(t, "fin", "Fin", 2000)
+	e.t.set(transmission.Torrent{Hash: "old", PercentDone: 0.3})
+	e.t.set(transmission.Torrent{Hash: "new", PercentDone: 0.3, Sequential: true})
+	e.t.set(transmission.Torrent{Hash: "fin", PercentDone: 1, Files: []transmission.File{e.file(t, "fin", "f/f.mkv")}, DoneDate: e.now})
+	require.NoError(t, e.s.Poll(context.Background()))
+	assert.Equal(t, []string{"old"}, e.t.seq, "only unfinished ones not in order yet")
+	require.NoError(t, e.s.Poll(context.Background()))
+	assert.Equal(t, []string{"old"}, e.t.seq, "once")
+}
+
+func TestPauseAndResumeDownloading(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.5, Sequential: true})
+	assert.True(t, e.get(t, "h1").CanPause())
+
+	require.NoError(t, e.s.Pause(ctx, "h1"))
+	assert.Equal(t, []string{"h1"}, e.t.stopped)
+	d := e.get(t, "h1")
+	assert.True(t, d.Paused)
+	assert.False(t, d.CanPause())
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Equal(t, "downloading", e.get(t, "h1").State, "a paused download just waits")
+	assert.Empty(t, e.t.started, "the poll doesn't start it again")
+
+	require.NoError(t, e.s.Resume(ctx, "h1"))
+	assert.Equal(t, []string{"h1"}, e.t.started)
+	assert.False(t, e.get(t, "h1").Paused)
+	assert.ErrorIs(t, e.s.Pause(ctx, "nope"), ErrNotFound)
+	assert.ErrorIs(t, e.s.Resume(ctx, "nope"), ErrNotFound)
+}
+
+func TestPauseSeeding(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 1, Files: []transmission.File{e.file(t, "h1", "d/d.mkv")}, DoneDate: e.now})
+	require.NoError(t, e.s.Poll(ctx))
+	require.Equal(t, "filed", e.get(t, "h1").State)
+	assert.True(t, e.get(t, "h1").CanPause())
+
+	require.NoError(t, e.s.Pause(ctx, "h1"))
+	d := e.get(t, "h1")
+	assert.True(t, d.Paused)
+	assert.False(t, d.SeedingDone, "paused, not done")
+
+	// Its seeding time ends while paused: it's done, and Resume leaves it stopped.
+	e.now = e.now.Add(73 * time.Hour)
+	d = e.get(t, "h1")
+	assert.False(t, d.Paused)
+	assert.True(t, d.SeedingDone)
+	assert.False(t, d.CanPause())
+	require.NoError(t, e.s.Resume(ctx, "h1"))
+	assert.Empty(t, e.t.started)
 }
 
 func TestListLiveProgress(t *testing.T) {

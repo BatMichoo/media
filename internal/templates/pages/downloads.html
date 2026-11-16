@@ -16,11 +16,12 @@
   {{ if .Rows }}
   <ul class="downloads">
     {{ range .Rows }}
-    <li class="download state-{{ .State }}">
+    <li class="download state-{{ .State }}{{ if .Paused }} paused{{ end }}">
       <div class="download-head">
         <strong class="download-title">{{ .Label }}</strong>
         <span class="chip-like">{{ t .Lang (printf "kind.%s" .Kind) }}</span>
         <span class="state">{{ t .Lang (printf "state.%s" .State) }}</span>
+        {{ if .Paused }}<span class="state state-paused">{{ t .Lang "state.paused" }}</span>{{ end }}
       </div>
       {{ if eq .State "downloading" }}
       <div class="progress">
@@ -43,6 +44,11 @@
           {{ if .AddedByName }}<span>{{ printf (t .Lang "downloads.added_by") .AddedByName }}</span>{{ end }}
         </div>
         <div class="download-actions">
+          {{ if .Paused }}
+          <button type="button" class="btn-secondary pause" hx-post="/downloads/{{ .Hash }}/resume" hx-target="#downloads-list" hx-swap="outerHTML">▶ {{ t .Lang "resume" }}</button>
+          {{ else if .CanPause }}
+          <button type="button" class="btn-secondary pause" hx-post="/downloads/{{ .Hash }}/pause" hx-target="#downloads-list" hx-swap="outerHTML">❚❚ {{ t .Lang "pause" }}</button>
+          {{ end }}
           <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/edit" hx-target="#sheet" hx-swap="innerHTML">{{ t .Lang "edit" }}</button>
           <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/remove" hx-target="#sheet" hx-swap="innerHTML">{{ t .Lang "remove" }}</button>
         </div>

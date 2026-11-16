@@ -80,6 +80,24 @@ hash=$(app "$url/downloads/list" | grep -o 'downloads/[0-9a-f]\{40\}/edit' | hea
 mkdir -p "$DATA/downloads/$hash"
 mv "$src" "$DATA/downloads/$hash/"
 src="$DATA/downloads/$hash/Test.Movie.2024"
+
+# It downloads its pieces in order, and pausing in the app stops it in
+# Transmission until it's resumed.
+# shellcheck disable=SC2016 # expanded inside the container
+torrent() {
+	compose exec -T -e HASH="$hash" transmission sh -c '
+		sid=$(curl -s -u media:tr-test -D - -o /dev/null http://localhost:9091/transmission/rpc | grep -i "^X-Transmission-Session-Id" | tr -d "\r")
+		curl -s -u media:tr-test -H "$sid" -d "{\"method\":\"torrent-get\",\"arguments\":{\"ids\":[\"$HASH\"],\"fields\":[\"status\",\"sequential_download\"]}}" http://localhost:9091/transmission/rpc'
+}
+torrent | grep -q '"sequential_download":true' || fail "not sequential: $(torrent)"
+app -o /dev/null "$url/downloads/$hash/pause" -X POST
+torrent | grep -q '"status":0' || fail "pause didn't stop it: $(torrent)"
+app "$url/downloads/list" | grep -q '/resume' || fail "no Resume button after pausing"
+app -o /dev/null "$url/downloads/$hash/resume" -X POST
+running() { ! torrent | grep -q '"status":0'; }
+wait_for running 30 || fail "resume didn't start it: $(torrent)"
+echo "sequential, pause: ok"
+
 compose exec -T transmission transmission-remote -n media:tr-test -t "$hash" --verify >/dev/null ||
 	fail "can't make Transmission check the data"
 

@@ -354,6 +354,36 @@ func TestRemoveForm(t *testing.T) {
 	assert.Equal(t, []removeCall{{"a1", true}, {"a1", false}}, a.dl.removed)
 }
 
+func TestPauseResume(t *testing.T) {
+	a := newApp(t)
+	until := time.Now().Add(time.Hour)
+	a.dl.list = []downloads.Download{
+		{Hash: "a1", Kind: "movie", Title: "Dune", Year: 2021, State: "downloading"},
+		{Hash: "b2", Kind: "movie", Title: "Heat", Year: 1995, State: "downloading", Paused: true},
+		{Hash: "c3", Kind: "movie", Title: "Seeding", Year: 1995, State: "filed", SeedingUntil: until},
+		{Hash: "d4", Kind: "movie", Title: "Done", Year: 1995, State: "filed", SeedingUntil: until, SeedingDone: true},
+		{Hash: "e5", Kind: "movie", Title: "Bad", Year: 1995, State: "failed"},
+	}
+	_, doc := a.get(t, "/downloads")
+	rows := doc.Find(".download")
+	post := func(i int) string { v, _ := rows.Eq(i).Find("button.pause").Attr("hx-post"); return v }
+	assert.Equal(t, "/downloads/a1/pause", post(0))
+	assert.Equal(t, "/downloads/b2/resume", post(1))
+	assert.True(t, rows.Eq(1).HasClass("paused"))
+	assert.Contains(t, rows.Eq(1).Find(".state-paused").Text(), "Paused")
+	assert.Equal(t, "/downloads/c3/pause", post(2), "seeding can be paused")
+	assert.Equal(t, 0, rows.Eq(3).Find("button.pause").Length(), "seeding over")
+	assert.Equal(t, 0, rows.Eq(4).Find("button.pause").Length(), "failed")
+
+	w, doc := a.post(t, "/downloads/a1/pause", url.Values{}, "HX-Request", "true")
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, 1, doc.Find("#downloads-list").Length(), "answers with the list")
+	a.post(t, "/downloads/b2/resume", url.Values{}, "HX-Request", "true")
+	assert.Equal(t, []string{"pause a1", "resume b2"}, a.dl.paused)
+	w, _ = a.post(t, "/downloads/zz/pause", url.Values{}, "HX-Request", "true")
+	assert.Equal(t, 404, w.Code)
+}
+
 func TestOriginCheck(t *testing.T) {
 	a := newApp(t)
 	w, _ := a.post(t, "/lang", url.Values{"lang": {"bg"}}, "Origin", "https://evil.example")

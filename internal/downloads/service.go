@@ -39,6 +39,8 @@ type Torrents interface {
 	Get(ctx context.Context, hashes []string) (map[string]transmission.Torrent, error)
 	Remove(ctx context.Context, hash string, deleteData bool) error
 	Stop(ctx context.Context, hash string) error
+	Start(ctx context.Context, hash string) error
+	SetSequential(ctx context.Context, hash string) error
 	Place(ctx context.Context, hash, dir string) error
 }
 
@@ -73,6 +75,15 @@ type Download struct {
 	ETA               time.Duration // time left; 0 = not known
 	SeedingUntil      time.Time
 	SeedingDone       bool
+	Paused            bool // paused in the app, downloading or seeding
+}
+
+// CanPause is true while it downloads or seeds.
+func (d Download) CanPause() bool {
+	if d.Paused {
+		return false
+	}
+	return d.State == "downloading" || (d.State == "filed" && !d.SeedingUntil.IsZero() && !d.SeedingDone)
 }
 
 // AddInput is what the Add page sends: a magnet link or a torrent file.
@@ -172,7 +183,7 @@ func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Downlo
 
 func fromRow(r db.Download) Download {
 	return Download{Hash: r.Hash, Kind: r.Kind, Title: r.Title, Year: r.Year, Name: r.Name,
-		AddedByName: r.AddedByName, AddedAt: r.AddedAt, State: r.State, Reason: r.Reason}
+		AddedByName: r.AddedByName, AddedAt: r.AddedAt, State: r.State, Reason: r.Reason, Paused: r.Paused}
 }
 
 // List is every download, newest first, with live progress from
@@ -203,10 +214,56 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 		out[i].Size, out[i].Done, out[i].ETA = t.Size, t.Size-t.Left, t.ETA
 		if !t.DoneDate.IsZero() {
 			out[i].SeedingUntil = t.DoneDate.Add(s.SeedFor)
-			out[i].SeedingDone = t.Stopped
+			// Paused past its seeding time is simply done.
+			if s.seedingOver(t) {
+				out[i].Paused = false
+			}
+			out[i].SeedingDone = t.Stopped && !out[i].Paused
 		}
 	}
 	return out, nil
+}
+
+// seedingOver is true once a finished torrent has seeded long enough.
+func (s *Service) seedingOver(t transmission.Torrent) bool {
+	return !t.DoneDate.IsZero() && s.Now().Sub(t.DoneDate) > s.SeedFor
+}
+
+// Pause stops a download, or a finished one's seeding, until Resume.
+func (s *Service) Pause(ctx context.Context, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.row(ctx, hash)
+	if err != nil {
+		return err
+	}
+	if err := s.t.Stop(ctx, hash); err != nil {
+		return err
+	}
+	r.Paused = true
+	return s.store.UpdateDownload(ctx, r)
+}
+
+// Resume starts a paused download again. One whose seeding time ended
+// while paused stays stopped.
+func (s *Service) Resume(ctx context.Context, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.row(ctx, hash)
+	if err != nil {
+		return err
+	}
+	live, err := s.t.Get(ctx, []string{hash})
+	if err != nil {
+		return fmt.Errorf("transmission: %w", err)
+	}
+	if t, ok := live[hash]; ok && !s.seedingOver(t) {
+		if err := s.t.Start(ctx, hash); err != nil {
+			return err
+		}
+	}
+	r.Paused = false
+	return s.store.UpdateDownload(ctx, r)
 }
 
 // Run polls every interval until ctx ends.
@@ -225,8 +282,9 @@ func (s *Service) Run(ctx context.Context, every time.Duration) {
 	}
 }
 
-// Poll is one round: file what finished, mark what vanished, and stop
-// seeding what has seeded long enough.
+// Poll is one round: file what finished, mark what vanished, stop
+// seeding what has seeded long enough, and make every unfinished torrent
+// download its pieces in order (one added before, or as a duplicate).
 func (s *Service) Poll(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -253,7 +311,12 @@ func (s *Service) Poll(ctx context.Context) error {
 				errs = append(errs, err)
 			}
 		}
-		if ok && !t.DoneDate.IsZero() && !t.Stopped && s.Now().Sub(t.DoneDate) > s.SeedFor {
+		if ok && t.PercentDone < 1 && !t.Sequential {
+			if err := s.t.SetSequential(ctx, r.Hash); err != nil {
+				errs = append(errs, fmt.Errorf("sequential %s: %w", r.Title, err))
+			}
+		}
+		if ok && !t.Stopped && s.seedingOver(t) {
 			if err := s.t.Stop(ctx, r.Hash); err != nil {
 				errs = append(errs, fmt.Errorf("stop seeding %s: %w", r.Title, err))
 			}

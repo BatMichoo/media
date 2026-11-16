@@ -90,6 +90,23 @@ type fakeDownloads struct {
 	edited    []string
 	editErr   error
 	addedUser model.User
+	paused    []string // "pause h" or "resume h", in order
+}
+
+func (f *fakeDownloads) Pause(_ context.Context, hash string) error {
+	return f.pauseCall("pause", hash)
+}
+func (f *fakeDownloads) Resume(_ context.Context, hash string) error {
+	return f.pauseCall("resume", hash)
+}
+func (f *fakeDownloads) pauseCall(what, hash string) error {
+	for _, d := range f.list {
+		if d.Hash == hash {
+			f.paused = append(f.paused, what+" "+hash)
+			return nil
+		}
+	}
+	return downloads.ErrNotFound
 }
 
 func (f *fakeDownloads) Add(_ context.Context, u model.User, in downloads.AddInput) (downloads.Download, bool, error) {
