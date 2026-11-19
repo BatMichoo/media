@@ -73,6 +73,7 @@
   }
 
   function showError() {
+    busy(false);
     errorBox.textContent = L.error;
     errorBox.hidden = false;
   }
@@ -83,6 +84,7 @@
     var body = { caps: caps, start: opts.start || 0 };
     if ("audio" in opts) body.audio = opts.audio;
     if ("sub" in opts) body.sub = opts.sub;
+    busy(true);
     return fetch("/play/" + parts[part].id, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -337,10 +339,86 @@
 
   function toggle() { if (video.paused) video.play().catch(function () {}); else video.pause(); }
   function jump(s) { video.currentTime = Math.max(0, Math.min(duration(), video.currentTime + s)); }
-  function fullscreen() {
-    if (document.fullscreenElement) document.exitFullscreen().catch(function () {});
-    else root.requestFullscreen().catch(function () {});
+  // Fullscreen: the whole player where the browser allows it; on iPhone
+  // only the video can go fullscreen, with the system's own controls.
+  // Phones turn to landscape where the browser lets a page ask for it.
+  var fsButton = root.querySelector('[data-action="fullscreen"]');
+  function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+  function isFull() { return !!fsElement() || !!video.webkitDisplayingFullscreen; }
+  function noop() {}
+  function lockLandscape() {
+    try {
+      if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(noop);
+    } catch (_) {}
   }
+  function unlockOrientation() {
+    try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (_) {}
+  }
+  function fullscreen() {
+    if (fsElement()) {
+      if (document.exitFullscreen) document.exitFullscreen().catch(noop);
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      return;
+    }
+    if (root.requestFullscreen) root.requestFullscreen().then(lockLandscape, noop);
+    else if (root.webkitRequestFullscreen) { root.webkitRequestFullscreen(); lockLandscape(); }
+    else if (video.webkitEnterFullscreen) { try { video.webkitEnterFullscreen(); } catch (_) {} }
+  }
+  function showFullscreen() {
+    var full = isFull();
+    icon(fsButton, full ? "exit-fullscreen" : "fullscreen");
+    fsButton.setAttribute("aria-label", full ? L.exitFullscreen : L.fullscreen);
+    if (!full) unlockOrientation();
+  }
+  document.addEventListener("fullscreenchange", showFullscreen);
+  document.addEventListener("webkitfullscreenchange", showFullscreen);
+  video.addEventListener("webkitbeginfullscreen", showFullscreen);
+  video.addEventListener("webkitendfullscreen", showFullscreen);
+  fsButton.hidden = !(root.requestFullscreen || root.webkitRequestFullscreen || video.webkitEnterFullscreen);
+
+  // Mute and volume, remembered in this browser.
+  var muteBtn = root.querySelector('[data-action="mute"]');
+  var volumeInput = root.querySelector(".player-volume");
+  var VOLUME_KEY = "media.player.volume";
+  try {
+    var saved = JSON.parse(localStorage.getItem(VOLUME_KEY) || "null");
+    if (saved && typeof saved.volume === "number") video.volume = Math.min(1, Math.max(0, saved.volume));
+    if (saved && saved.muted) video.muted = true;
+  } catch (_) {}
+  function showVolume() {
+    var silent = video.muted || video.volume === 0;
+    icon(muteBtn, silent ? "muted" : "volume");
+    muteBtn.setAttribute("aria-label", silent ? L.unmute : L.mute);
+    volumeInput.value = String(silent ? 0 : video.volume);
+  }
+  function toggleMute() {
+    if (video.muted || video.volume === 0) {
+      if (video.volume === 0) video.volume = 0.5;
+      video.muted = false;
+    } else {
+      video.muted = true;
+    }
+  }
+  volumeInput.addEventListener("input", function () {
+    var v = Number(volumeInput.value);
+    video.volume = v;
+    video.muted = v === 0;
+  });
+  video.addEventListener("volumechange", function () {
+    showVolume();
+    try { localStorage.setItem(VOLUME_KEY, JSON.stringify({ muted: video.muted, volume: video.volume })); } catch (_) {}
+  });
+  showVolume();
+
+  // busy shows the spinner while the video waits for data.
+  var spinner = root.querySelector(".player-spinner");
+  function busy(on) {
+    spinner.hidden = !on;
+    root.classList.toggle("busy", on);
+  }
+  video.addEventListener("waiting", function () { busy(true); });
+  video.addEventListener("stalled", function () { if (video.readyState < 3) busy(true); });
+  ["playing", "canplay", "pause", "error"].forEach(function (ev) { video.addEventListener(ev, function () { busy(false); }); });
 
   root.addEventListener("click", function (e) {
     if (menuOpen() && !e.target.closest(".player-menu") && !e.target.closest('[data-action="settings"]')) {
@@ -355,6 +433,7 @@
       case "forward10": jump(10); break;
       case "fullscreen": fullscreen(); break;
       case "settings": if (menuOpen()) closeMenu(); else openMenu(); break;
+      case "mute": toggleMute(); break;
       case "back": e.preventDefault(); leave(); break;
     }
   });
@@ -377,6 +456,7 @@
       case "ArrowLeft": e.preventDefault(); jump(-10); break;
       case "ArrowRight": e.preventDefault(); jump(10); break;
       case "f": case "F": e.preventDefault(); fullscreen(); break;
+      case "m": case "M": e.preventDefault(); toggleMute(); break;
     }
   });
 
