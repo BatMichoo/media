@@ -29,8 +29,8 @@
     <button type="button" class="player-button" data-action="forward10" aria-label='{{ t .Lang "player.forward10" }}'><svg><use href="#i-fwd10"/></svg></button>
   </div>
   <div class="player-menu" role="menu" hidden>
-    <section data-group="subtitles"><h3>{{ t .Lang "player.subtitles" }}</h3><ul></ul></section>
-    <section data-group="audio" hidden><h3>{{ t .Lang "player.audio" }}</h3><ul></ul></section>
+    <section data-group="subtitles" role="group" aria-labelledby="player-menu-subtitles"><h3 id="player-menu-subtitles">{{ t .Lang "player.subtitles" }}</h3><ul role="none"></ul></section>
+    <section data-group="audio" role="group" aria-labelledby="player-menu-audio" hidden><h3 id="player-menu-audio">{{ t .Lang "player.audio" }}</h3><ul role="none"></ul></section>
   </div>
   <div class="player-controls">
     <div class="player-timeline">

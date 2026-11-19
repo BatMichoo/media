@@ -106,7 +106,9 @@
     Array.prototype.slice.call(video.querySelectorAll("track")).forEach(function (t) { t.remove(); });
     var seekTo = function () {
       if (start > 0 && Math.abs(video.currentTime - start) > 1) video.currentTime = start;
-      video.play().catch(function () {});
+      // A refused autoplay (iOS) leaves the video paused: stop the spinner
+      // so the play button shows.
+      video.play().catch(function () { busy(false); });
     };
     video.addEventListener("loadedmetadata", seekTo, { once: true });
     if (s.direct || caps.hls) {
@@ -145,6 +147,7 @@
   // menuItem is one choice in the settings menu; value is "off" or a track index.
   function menuItem(value, label, checked) {
     var li = document.createElement("li");
+    li.setAttribute("role", "none");
     var b = document.createElement("button");
     b.type = "button";
     b.setAttribute("role", "menuitemradio");
@@ -199,10 +202,18 @@
   }
 
   function menuOpen() { return !menu.hidden; }
+  function menuButtons() {
+    return Array.prototype.filter.call(menu.querySelectorAll("button"), function (b) { return !b.closest("[hidden]"); });
+  }
   function openMenu() {
+    // Sit just above the controls, however tall the safe area makes them.
+    var controls = root.querySelector(".player-controls").getBoundingClientRect();
+    menu.style.bottom = Math.round(root.getBoundingClientRect().bottom - controls.top + 4) + "px";
     menu.hidden = false;
     settingsBtn.setAttribute("aria-expanded", "true");
     root.classList.add("menu-open");
+    var checked = menu.querySelector('button[aria-checked="true"]');
+    (checked || menuButtons()[0] || settingsBtn).focus();
     wake();
   }
   function closeMenu() {
@@ -216,10 +227,12 @@
   menu.addEventListener("click", function (e) {
     var b = e.target.closest("button[data-track]");
     if (!b || !session) return;
+    if (b.getAttribute("aria-checked") === "true") { closeMenu(); settingsBtn.focus(); return; } // already playing
     var v = b.dataset.track;
     if (b.closest('[data-group="subtitles"]')) chooseSubtitle(v === "off" ? null : Number(v));
-    else if (Number(v) !== session.audio) chooseAudio(Number(v));
+    else chooseAudio(Number(v));
     closeMenu();
+    settingsBtn.focus();
   });
 
   // save reports the place; event "stop" ends the Jellyfin session.
@@ -360,9 +373,14 @@
       else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
       return;
     }
-    if (root.requestFullscreen) root.requestFullscreen().then(lockLandscape, noop);
-    else if (root.webkitRequestFullscreen) { root.webkitRequestFullscreen(); lockLandscape(); }
-    else if (video.webkitEnterFullscreen) { try { video.webkitEnterFullscreen(); } catch (_) {} }
+    // iPhone may have the element methods but with fullscreen disabled.
+    var enabled = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+    if (enabled && root.requestFullscreen) root.requestFullscreen().then(lockLandscape, videoFullscreen);
+    else if (enabled && root.webkitRequestFullscreen) { root.webkitRequestFullscreen(); lockLandscape(); }
+    else videoFullscreen();
+  }
+  function videoFullscreen() {
+    if (video.webkitEnterFullscreen) { try { video.webkitEnterFullscreen(); } catch (_) {} }
   }
   function showFullscreen() {
     var full = isFull();
@@ -416,8 +434,11 @@
     spinner.hidden = !on;
     root.classList.toggle("busy", on);
   }
-  video.addEventListener("waiting", function () { busy(true); });
-  video.addEventListener("stalled", function () { if (video.readyState < 3) busy(true); });
+  // Only a playing video can be waiting for data; a paused one just shows play.
+  video.addEventListener("waiting", function () { if (!video.paused) busy(true); });
+  video.addEventListener("stalled", function () { if (!video.paused && video.readyState < 3) busy(true); });
+  video.addEventListener("play", function () { root.classList.add("is-playing"); });
+  video.addEventListener("pause", function () { root.classList.remove("is-playing"); });
   ["playing", "canplay", "pause", "error"].forEach(function (ev) { video.addEventListener(ev, function () { busy(false); }); });
 
   root.addEventListener("click", function (e) {
@@ -450,7 +471,16 @@
     }
     wake();
     if (e.key === "Escape" && menuOpen()) { e.preventDefault(); closeMenu(); settingsBtn.focus(); return; }
-    if (menuOpen()) return; // arrows and space belong to the menu
+    if (menuOpen()) {
+      // Up and down move through the menu; Enter and Space choose natively.
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        var bs = menuButtons(), i = bs.indexOf(document.activeElement);
+        var next = i < 0 ? 0 : (i + (e.key === "ArrowDown" ? 1 : -1) + bs.length) % bs.length;
+        if (bs[next]) bs[next].focus();
+      }
+      return;
+    }
     switch (e.key) {
       case " ": case "k": e.preventDefault(); toggle(); break;
       case "ArrowLeft": e.preventDefault(); jump(-10); break;

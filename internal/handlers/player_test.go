@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"github.com/PuerkitoBio/goquery"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -68,6 +69,16 @@ func TestWatchPageData(t *testing.T) {
 	assert.Equal(t, 1, p.Find(`.player-menu [data-group="subtitles"]`).Length())
 	assert.Equal(t, 1, p.Find(`.player-menu [data-group="audio"]`).Length())
 	assert.Equal(t, 1, p.Find(".player-spinner").Length())
+	// The menu's groups are named groups whose lists don't hide the items from screen readers.
+	p.Find(".player-menu section").Each(func(_ int, s *goquery.Selection) {
+		role, _ := s.Attr("role")
+		assert.Equal(t, "group", role)
+		by, _ := s.Attr("aria-labelledby")
+		require.NotEmpty(t, by)
+		assert.Equal(t, 1, p.Find("h3#"+by).Length(), by)
+		r, _ := s.Find("ul").Attr("role")
+		assert.Equal(t, "none", r)
+	})
 
 	// A finished movie starts over; an explicit ?part= starts that part.
 	a.w.prog[m.ID] = watching.Progress{ItemID: m.ID, Part: 1, Position: 2900, Watched: 5900, Duration: 6000, Finished: true}
