@@ -63,7 +63,8 @@
   }
 
   function duration() {
-    return (session && session.duration) || parts[part].duration || video.duration || 0;
+    var d = (session && session.duration) || parts[part].duration || video.duration || 0;
+    return isFinite(d) ? d : 0; // a live stream's length is unknown
   }
 
   // icon points a button's <svg><use> at the #i-<name> symbol.
@@ -290,8 +291,10 @@
     setSeekUI(dragTime);
     var d = duration();
     bubble.textContent = clock(dragTime);
-    bubble.style.left = (d > 0 ? (dragTime / d) * 100 : 0) + "%";
     bubble.hidden = false;
+    var w = seek.clientWidth, half = bubble.offsetWidth / 2;
+    var x = d > 0 ? (dragTime / d) * w : 0;
+    bubble.style.left = Math.max(half, Math.min(w - half, x)) + "px";
     currentLabel.textContent = clock(dragTime);
   }
   seek.addEventListener("pointerdown", function (e) {
@@ -317,6 +320,8 @@
   seek.addEventListener("keydown", function (e) {
     if (e.key === "Home") { e.preventDefault(); video.currentTime = 0; }
     else if (e.key === "End") { e.preventDefault(); video.currentTime = Math.max(0, duration() - 1); }
+    else if (e.key === "PageUp") { e.preventDefault(); jump(60); }
+    else if (e.key === "PageDown") { e.preventDefault(); jump(-60); }
   });
   video.addEventListener("progress", showBuffered);
 
@@ -444,7 +449,7 @@
   root.addEventListener("click", function (e) {
     if (menuOpen() && !e.target.closest(".player-menu") && !e.target.closest('[data-action="settings"]')) {
       closeMenu();
-      return;
+      if (!e.target.closest("[data-action]")) return; // a tap beside the menu only closes it
     }
     var a = e.target.closest("[data-action]");
     if (!a) return; // taps on the picture are handled in the gestures below
@@ -471,7 +476,7 @@
     }
     wake();
     if (e.key === "Escape" && menuOpen()) { e.preventDefault(); closeMenu(); settingsBtn.focus(); return; }
-    if (menuOpen()) {
+    if (menuOpen() && menu.contains(document.activeElement)) {
       // Up and down move through the menu; Enter and Space choose natively.
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -481,6 +486,8 @@
       }
       return;
     }
+    // Space on a focused button or link presses it, nothing more.
+    if (e.key === " " && e.target.closest && e.target.closest("button, a")) return;
     switch (e.key) {
       case " ": case "k": e.preventDefault(); toggle(); break;
       case "ArrowLeft": e.preventDefault(); jump(-10); break;
@@ -503,6 +510,7 @@
   function showControls() { wake(); }
   function hideControls() { clearTimeout(idleTimer); root.classList.add("idle"); }
   video.addEventListener("pause", function () { root.classList.remove("idle"); });
+  video.addEventListener("playing", wake); // start the hide timer even when playback starts late
 
   // flash shows "−10" / "+10" on one side; quick repeats add up.
   var flashes = { left: { el: root.querySelector(".player-flash.left"), sum: 0, timer: null },
@@ -536,10 +544,11 @@
     else fullscreen();
   }
   root.addEventListener("pointerdown", function (e) {
-    if (e.pointerType === "touch") lastTouchAt = Date.now();
+    var touch = e.pointerType !== "mouse"; // touch and pen
+    if (touch) lastTouchAt = Date.now();
     // Touching a control keeps the controls up; a tap on the picture
     // decides for itself once it is known to be single or double.
-    if (e.pointerType !== "touch" || !onSurface(e.target)) wake();
+    if (!touch || !onSurface(e.target)) wake();
   }, { passive: true });
   root.addEventListener("mousemove", function () {
     if (Date.now() - lastTouchAt > 800) wake(); // browsers fake a mousemove after a tap
@@ -558,7 +567,7 @@
     }
     if (tapTimer && now - lastTapAt < TAP_MS) {
       clearTimeout(tapTimer); tapTimer = null;
-      lastDoubleAt = now;
+      lastDoubleAt = touch && side !== "middle" ? now : 0; // only side skips chain
       if (touch) doubleTap(side); else fullscreen();
       return;
     }

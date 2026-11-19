@@ -80,6 +80,11 @@ func TestWatchPageData(t *testing.T) {
 		assert.Equal(t, "none", r)
 	})
 
+	// The seek bar's name follows the page's language.
+	_, bg := a.get(t, "/watch/"+m.ID, "Cookie", "homeserver_lang=bg")
+	seekLabel, _ := bg.Find(".player-seek").Attr("aria-label")
+	assert.Equal(t, "Превъртане", seekLabel)
+
 	// A finished movie starts over; an explicit ?part= starts that part.
 	a.w.prog[m.ID] = watching.Progress{ItemID: m.ID, Part: 1, Position: 2900, Watched: 5900, Duration: 6000, Finished: true}
 	_, doc = a.get(t, "/watch/"+m.ID)
