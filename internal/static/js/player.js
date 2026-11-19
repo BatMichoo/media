@@ -348,10 +348,7 @@
       return;
     }
     var a = e.target.closest("[data-action]");
-    if (!a) {
-      if (e.target === video) toggle();
-      return;
-    }
+    if (!a) return; // taps on the picture are handled in the gestures below
     switch (a.dataset.action) {
       case "toggle": toggle(); break;
       case "back10": jump(-10); break;
@@ -383,15 +380,85 @@
     }
   });
 
-  // Controls hide after 3 seconds without input while playing.
+  // Controls hide after 3 seconds without input while playing, but not
+  // while the menu is open or the seek bar is held.
   var idleTimer = null;
   function wake() {
     root.classList.remove("idle");
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(function () { if (!video.paused && !menuOpen()) root.classList.add("idle"); }, 3000);
+    idleTimer = setTimeout(function () {
+      if (!video.paused && !menuOpen() && !dragging) root.classList.add("idle");
+    }, 3000);
   }
-  ["mousemove", "touchstart", "pointerdown"].forEach(function (ev) { root.addEventListener(ev, wake, { passive: true }); });
+  function showControls() { wake(); }
+  function hideControls() { clearTimeout(idleTimer); root.classList.add("idle"); }
   video.addEventListener("pause", function () { root.classList.remove("idle"); });
+
+  // flash shows "−10" / "+10" on one side; quick repeats add up.
+  var flashes = { left: { el: root.querySelector(".player-flash.left"), sum: 0, timer: null },
+    right: { el: root.querySelector(".player-flash.right"), sum: 0, timer: null } };
+  function flash(side, seconds) {
+    var f = flashes[side];
+    f.sum += seconds;
+    f.el.textContent = (f.sum < 0 ? "−" : "+") + Math.abs(f.sum);
+    f.el.hidden = false;
+    clearTimeout(f.timer);
+    f.timer = setTimeout(function () { f.el.hidden = true; f.sum = 0; }, 600);
+  }
+
+  // Taps on the picture (not on a control). Touch: one tap shows or
+  // hides the controls; two taps skip on the left or right third and
+  // toggle fullscreen in the middle. Mouse: click plays or pauses,
+  // double click toggles fullscreen.
+  var TAP_MS = 250;
+  var tapTimer = null, lastTapAt = 0, lastDoubleAt = 0, lastTouchAt = 0;
+  function onSurface(el) {
+    return !el.closest("button, a, input, .player-menu, .player-controls, .player-top");
+  }
+  function sideOf(clientX) {
+    var r = root.getBoundingClientRect();
+    var f = (clientX - r.left) / (r.width || 1);
+    return f < 1 / 3 ? "left" : f > 2 / 3 ? "right" : "middle";
+  }
+  function doubleTap(side) {
+    if (side === "left") { jump(-10); flash("left", -10); }
+    else if (side === "right") { jump(10); flash("right", 10); }
+    else fullscreen();
+  }
+  root.addEventListener("pointerdown", function (e) {
+    if (e.pointerType === "touch") lastTouchAt = Date.now();
+    // Touching a control keeps the controls up; a tap on the picture
+    // decides for itself once it is known to be single or double.
+    if (e.pointerType !== "touch" || !onSurface(e.target)) wake();
+  }, { passive: true });
+  root.addEventListener("mousemove", function () {
+    if (Date.now() - lastTouchAt > 800) wake(); // browsers fake a mousemove after a tap
+  }, { passive: true });
+  root.addEventListener("pointerup", function (e) {
+    if (e.button !== 0 || !onSurface(e.target) || menuOpen()) return;
+    var now = Date.now();
+    var touch = e.pointerType !== "mouse";
+    var side = sideOf(e.clientX);
+    // Further quick taps after a double tap keep skipping.
+    if (touch && side !== "middle" && now - lastDoubleAt < 600) {
+      clearTimeout(tapTimer); tapTimer = null;
+      lastDoubleAt = now;
+      doubleTap(side);
+      return;
+    }
+    if (tapTimer && now - lastTapAt < TAP_MS) {
+      clearTimeout(tapTimer); tapTimer = null;
+      lastDoubleAt = now;
+      if (touch) doubleTap(side); else fullscreen();
+      return;
+    }
+    lastTapAt = now;
+    tapTimer = setTimeout(function () {
+      tapTimer = null;
+      if (!touch) { toggle(); wake(); return; }
+      if (root.classList.contains("idle")) showControls(); else hideControls();
+    }, TAP_MS);
+  });
 
   window.addEventListener("pagehide", function () { if (!leaving) { leaving = true; save("stop"); } });
 
