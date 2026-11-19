@@ -8,10 +8,17 @@
   if (!root) return;
   var video = root.querySelector("video");
   var seek = root.querySelector(".player-seek");
-  var timeLabel = root.querySelector(".player-time");
-  var toggleBtn = root.querySelector(".player-toggle");
-  var subSelect = root.querySelector('select[data-action="subtitles"]');
-  var audioSelect = root.querySelector('select[data-action="audio"]');
+  var played = root.querySelector(".player-played");
+  var buffered = root.querySelector(".player-buffered");
+  var thumb = root.querySelector(".player-thumb");
+  var currentLabel = root.querySelector(".player-current");
+  var totalLabel = root.querySelector(".player-total");
+  var toggles = root.querySelectorAll('[data-action="toggle"]');
+  var settingsBtn = root.querySelector('[data-action="settings"]');
+  var menu = root.querySelector(".player-menu");
+  var subList = menu.querySelector('[data-group="subtitles"] ul');
+  var audioGroup = menu.querySelector('[data-group="audio"]');
+  var audioList = audioGroup.querySelector("ul");
   var errorBox = root.querySelector(".player-error");
 
   var item = root.dataset.item;
@@ -57,6 +64,12 @@
 
   function duration() {
     return (session && session.duration) || parts[part].duration || video.duration || 0;
+  }
+
+  // icon points a button's <svg><use> at the #i-<name> symbol.
+  function icon(button, name) {
+    var use = button.querySelector("use");
+    if (use) use.setAttribute("href", "#i-" + name);
   }
 
   function showError() {
@@ -127,23 +140,28 @@
     }
   }
 
-  function option(value, label, selected) {
-    var o = document.createElement("option");
-    o.value = value;
-    o.textContent = label;
-    o.selected = selected;
-    return o;
+  // menuItem is one choice in the settings menu; value is "off" or a track index.
+  function menuItem(value, label, checked) {
+    var li = document.createElement("li");
+    var b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "menuitemradio");
+    b.setAttribute("aria-checked", checked ? "true" : "false");
+    b.dataset.track = value;
+    b.textContent = label;
+    li.appendChild(b);
+    return li;
   }
 
   function fillTracks(s) {
-    subSelect.replaceChildren(option("off", L.off, s.sub === null));
-    s.subtitles.forEach(function (t) { subSelect.appendChild(option(String(t.index), t.label || t.lang, s.sub === t.index)); });
-    audioSelect.replaceChildren();
+    subList.replaceChildren(menuItem("off", L.off, s.sub === null));
+    s.subtitles.forEach(function (t) { subList.appendChild(menuItem(String(t.index), t.label || t.lang, s.sub === t.index)); });
+    audioList.replaceChildren();
     s.audioTracks.forEach(function (t, i) {
       var chosen = s.audio === null ? i === 0 : s.audio === t.index;
-      audioSelect.appendChild(option(String(t.index), t.label || t.lang, chosen));
+      audioList.appendChild(menuItem(String(t.index), t.label || t.lang, chosen));
     });
-    audioSelect.closest("label").hidden = s.audioTracks.length < 2;
+    audioGroup.hidden = s.audioTracks.length < 2;
   }
 
   function track(list, index) {
@@ -157,9 +175,7 @@
     fetch("/prefs", { method: "POST", body: f, credentials: "same-origin" }).catch(function () {});
   }
 
-  subSelect.addEventListener("change", function () {
-    var v = subSelect.value;
-    var index = v === "off" ? null : Number(v);
+  function chooseSubtitle(index) {
     var t = index === null ? null : track(session.subtitles, index);
     savePrefs("subtitle_lang", t ? t.lang : "off");
     var wasImage = session.sub !== null && (track(session.subtitles, session.sub) || {}).image;
@@ -169,15 +185,39 @@
     } else {
       session.sub = index;
       showSubtitle(index);
+      fillTracks(session);
     }
-  });
+  }
 
-  audioSelect.addEventListener("change", function () {
-    var index = Number(audioSelect.value);
+  function chooseAudio(index) {
     var t = track(session.audioTracks, index);
     if (t) savePrefs("audio_lang", t.lang);
     var sub = session.sub !== null && (track(session.subtitles, session.sub) || {}).image ? session.sub : null;
     load({ audio: index, sub: sub, start: video.currentTime });
+  }
+
+  function menuOpen() { return !menu.hidden; }
+  function openMenu() {
+    menu.hidden = false;
+    settingsBtn.setAttribute("aria-expanded", "true");
+    root.classList.add("menu-open");
+    wake();
+  }
+  function closeMenu() {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    settingsBtn.setAttribute("aria-expanded", "false");
+    root.classList.remove("menu-open");
+    wake();
+  }
+
+  menu.addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-track]");
+    if (!b || !session) return;
+    var v = b.dataset.track;
+    if (b.closest('[data-group="subtitles"]')) chooseSubtitle(v === "off" ? null : Number(v));
+    else if (Number(v) !== session.audio) chooseAudio(Number(v));
+    closeMenu();
   });
 
   // save reports the place; event "stop" ends the Jellyfin session.
@@ -203,17 +243,32 @@
     lastSave = Date.now();
   }
 
-  video.addEventListener("timeupdate", function () {
+  // setSeekUI moves the played fill and thumb to t seconds.
+  function setSeekUI(t) {
     var d = duration();
-    seek.max = String(Math.floor(d));
-    if (!seek.matches(":active")) seek.value = String(Math.floor(video.currentTime));
-    timeLabel.textContent = clock(video.currentTime) + " / " + clock(d);
+    var pct = d > 0 ? Math.min(100, Math.max(0, (t / d) * 100)) : 0;
+    played.style.width = pct + "%";
+    thumb.style.left = pct + "%";
+    seek.setAttribute("aria-valuemax", String(Math.floor(d)));
+    seek.setAttribute("aria-valuenow", String(Math.floor(t || 0)));
+    seek.setAttribute("aria-valuetext", clock(t) + " / " + clock(d));
+  }
+
+  function showTime() {
+    setSeekUI(video.currentTime);
+    currentLabel.textContent = clock(video.currentTime);
+    totalLabel.textContent = clock(duration());
+  }
+  video.addEventListener("loadedmetadata", showTime);
+  video.addEventListener("timeupdate", function () {
+    showTime();
     if (!video.paused && Date.now() - lastSave >= 10000) save("progress");
   });
-  video.addEventListener("play", function () { toggleBtn.textContent = "❚❚"; toggleBtn.setAttribute("aria-label", L.pause); });
+  video.addEventListener("play", function () {
+    Array.prototype.forEach.call(toggles, function (b) { icon(b, "pause"); b.setAttribute("aria-label", L.pause); });
+  });
   video.addEventListener("pause", function () {
-    toggleBtn.textContent = "▶";
-    toggleBtn.setAttribute("aria-label", L.play);
+    Array.prototype.forEach.call(toggles, function (b) { icon(b, "play"); b.setAttribute("aria-label", L.play); });
     if (!leaving && !video.ended) save("progress");
   });
   video.addEventListener("ended", function () {
@@ -226,7 +281,6 @@
       location.href = back;
     }
   });
-  seek.addEventListener("input", function () { video.currentTime = Number(seek.value); });
 
   function toggle() { if (video.paused) video.play().catch(function () {}); else video.pause(); }
   function jump(s) { video.currentTime = Math.max(0, Math.min(duration(), video.currentTime + s)); }
@@ -236,6 +290,10 @@
   }
 
   root.addEventListener("click", function (e) {
+    if (menuOpen() && !e.target.closest(".player-menu") && !e.target.closest('[data-action="settings"]')) {
+      closeMenu();
+      return;
+    }
     var a = e.target.closest("[data-action]");
     if (!a) {
       if (e.target === video) toggle();
@@ -246,6 +304,7 @@
       case "back10": jump(-10); break;
       case "forward10": jump(10); break;
       case "fullscreen": fullscreen(); break;
+      case "settings": if (menuOpen()) closeMenu(); else openMenu(); break;
       case "back": e.preventDefault(); leave(); break;
     }
   });
@@ -257,10 +316,12 @@
   }
 
   document.addEventListener("keydown", function (e) {
-    if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") {
+    if (e.target.tagName === "INPUT") {
       if (e.key !== "Escape") return;
     }
     wake();
+    if (e.key === "Escape" && menuOpen()) { e.preventDefault(); closeMenu(); settingsBtn.focus(); return; }
+    if (menuOpen()) return; // arrows and space belong to the menu
     switch (e.key) {
       case " ": case "k": e.preventDefault(); toggle(); break;
       case "ArrowLeft": e.preventDefault(); jump(-10); break;
@@ -274,7 +335,7 @@
   function wake() {
     root.classList.remove("idle");
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(function () { if (!video.paused) root.classList.add("idle"); }, 3000);
+    idleTimer = setTimeout(function () { if (!video.paused && !menuOpen()) root.classList.add("idle"); }, 3000);
   }
   ["mousemove", "touchstart", "pointerdown"].forEach(function (ev) { root.addEventListener(ev, wake, { passive: true }); });
   video.addEventListener("pause", function () { root.classList.remove("idle"); });

@@ -59,6 +59,15 @@ func TestWatchPageData(t *testing.T) {
 		assert.NotEmpty(t, labels[k], k)
 		assert.NotEqual(t, "player."+k, labels[k], k) // i18n returns the key when missing
 	}
+	assert.Equal(t, 0, p.Find("select").Length())
+	assert.Equal(t, 1, p.Find(`.player-seek[role="slider"]`).Length())
+	assert.Equal(t, 2, p.Find(`[data-action="toggle"]`).Length())
+	for _, a := range []string{"mute", "settings", "fullscreen"} {
+		assert.Equal(t, 1, p.Find(`[data-action="`+a+`"]`).Length(), a)
+	}
+	assert.Equal(t, 1, p.Find(`.player-menu [data-group="subtitles"]`).Length())
+	assert.Equal(t, 1, p.Find(`.player-menu [data-group="audio"]`).Length())
+	assert.Equal(t, 1, p.Find(".player-spinner").Length())
 
 	// A finished movie starts over; an explicit ?part= starts that part.
 	a.w.prog[m.ID] = watching.Progress{ItemID: m.ID, Part: 1, Position: 2900, Watched: 5900, Duration: 6000, Finished: true}

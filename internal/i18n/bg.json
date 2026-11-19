@@ -74,6 +74,7 @@
   "player.unmute": "Със звук",
   "player.settings": "Настройки",
   "player.exitFullscreen": "Изход от цял екран",
+  "player.volume": "Сила на звука",
   "player.error": "Видеото не може да се пусне в момента.",
   "error.title_long": "Заглавието е твърде дълго за име на папка; съкрати го.",
   "pause": "Пауза",

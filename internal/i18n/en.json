@@ -74,6 +74,7 @@
   "player.unmute": "Unmute",
   "player.settings": "Settings",
   "player.exitFullscreen": "Exit fullscreen",
+  "player.volume": "Volume",
   "player.error": "This video can't be played right now.",
   "error.title_long": "That title is too long for a folder name; shorten it.",
   "pause": "Pause",
