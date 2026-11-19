@@ -37,7 +37,8 @@ type watchView struct {
 }
 
 var playerLabels = []string{"player.back", "player.play", "player.pause", "player.back10", "player.forward10",
-	"player.subtitles", "player.audio", "player.off", "player.fullscreen", "player.error"}
+	"player.subtitles", "player.audio", "player.off", "player.fullscreen", "player.error",
+	"player.mute", "player.unmute", "player.settings", "player.exitFullscreen"}
 
 func (h *web) watch(c *gin.Context) {
 	ctx := c.Request.Context()

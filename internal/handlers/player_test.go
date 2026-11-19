@@ -53,6 +53,12 @@ func TestWatchPageData(t *testing.T) {
 	assert.Equal(t, 1, doc.Find(`script[src^="/static/media/js/player.js"]`).Length())
 	assert.Equal(t, "Dune (2021) · Media", doc.Find("title").Text())
 	assert.Equal(t, 1, doc.Find(`script[src^="/static/media/js/hls.min.js"]`).Length())
+	var labels map[string]string
+	require.NoError(t, json.Unmarshal([]byte(attr("data-labels")), &labels))
+	for _, k := range []string{"mute", "unmute", "settings", "exitFullscreen", "subtitles", "audio", "off"} {
+		assert.NotEmpty(t, labels[k], k)
+		assert.NotEqual(t, "player."+k, labels[k], k) // i18n returns the key when missing
+	}
 
 	// A finished movie starts over; an explicit ?part= starts that part.
 	a.w.prog[m.ID] = watching.Progress{ItemID: m.ID, Part: 1, Position: 2900, Watched: 5900, Duration: 6000, Finished: true}
