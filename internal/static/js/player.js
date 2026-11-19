@@ -254,7 +254,60 @@
     seek.setAttribute("aria-valuetext", clock(t) + " / " + clock(d));
   }
 
+  function showBuffered() {
+    var d = duration(), b = video.buffered, t = video.currentTime;
+    var end = 0;
+    for (var i = 0; i < b.length; i++) if (b.start(i) <= t + 0.5 && b.end(i) >= t) end = b.end(i);
+    buffered.style.width = d > 0 ? Math.min(100, (end / d) * 100) + "%" : "0";
+  }
+
+  // Dragging the seek bar moves only the thumb and a time bubble; the
+  // video seeks once, on release.
+  var bubble = seek.querySelector(".player-bubble");
+  var dragging = false, dragTime = 0;
+  function timeAt(clientX) {
+    var r = seek.getBoundingClientRect();
+    var f = r.width > 0 ? Math.min(1, Math.max(0, (clientX - r.left) / r.width)) : 0;
+    return f * duration();
+  }
+  function dragTo(clientX) {
+    dragTime = timeAt(clientX);
+    setSeekUI(dragTime);
+    var d = duration();
+    bubble.textContent = clock(dragTime);
+    bubble.style.left = (d > 0 ? (dragTime / d) * 100 : 0) + "%";
+    bubble.hidden = false;
+    currentLabel.textContent = clock(dragTime);
+  }
+  seek.addEventListener("pointerdown", function (e) {
+    if (e.button !== 0) return;
+    dragging = true;
+    root.classList.add("seeking");
+    try { seek.setPointerCapture(e.pointerId); } catch (_) {}
+    dragTo(e.clientX);
+    e.preventDefault();
+  });
+  seek.addEventListener("pointermove", function (e) { if (dragging) dragTo(e.clientX); });
+  function endDrag(commit) {
+    if (!dragging) return;
+    dragging = false;
+    root.classList.remove("seeking");
+    bubble.hidden = true;
+    if (commit && duration() > 0) video.currentTime = dragTime;
+    showTime();
+    wake();
+  }
+  seek.addEventListener("pointerup", function () { endDrag(true); });
+  seek.addEventListener("pointercancel", function () { endDrag(false); });
+  seek.addEventListener("keydown", function (e) {
+    if (e.key === "Home") { e.preventDefault(); video.currentTime = 0; }
+    else if (e.key === "End") { e.preventDefault(); video.currentTime = Math.max(0, duration() - 1); }
+  });
+  video.addEventListener("progress", showBuffered);
+
   function showTime() {
+    showBuffered();
+    if (dragging) return;
     setSeekUI(video.currentTime);
     currentLabel.textContent = clock(video.currentTime);
     totalLabel.textContent = clock(duration());
