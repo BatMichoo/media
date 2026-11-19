@@ -75,6 +75,7 @@
 
   function showError() {
     busy(false);
+    root.classList.remove("loading");
     errorBox.textContent = L.error;
     errorBox.hidden = false;
   }
@@ -86,6 +87,7 @@
     if ("audio" in opts) body.audio = opts.audio;
     if ("sub" in opts) body.sub = opts.sub;
     busy(true);
+    root.classList.add("loading");
     return fetch("/play/" + parts[part].id, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -109,7 +111,11 @@
       if (start > 0 && Math.abs(video.currentTime - start) > 1) video.currentTime = start;
       // A refused autoplay (iOS) leaves the video paused: stop the spinner
       // so the play button shows.
-      video.play().catch(function () { busy(false); });
+      video.play().catch(function (err) {
+        if (err && err.name === "AbortError") return; // a newer load took over
+        busy(false);
+        root.classList.remove("loading");
+      });
     };
     video.addEventListener("loadedmetadata", seekTo, { once: true });
     if (s.direct || caps.hls) {
@@ -356,7 +362,10 @@
   });
 
   function toggle() { if (video.paused) video.play().catch(function () {}); else video.pause(); }
-  function jump(s) { video.currentTime = Math.max(0, Math.min(duration(), video.currentTime + s)); }
+  function jump(s) {
+    var d = duration(), t = video.currentTime + s;
+    video.currentTime = Math.max(0, d > 0 ? Math.min(d, t) : t); // unknown length: no end to stop at
+  }
   // Fullscreen: the whole player where the browser allows it; on iPhone
   // only the video can go fullscreen, with the system's own controls.
   // Phones turn to landscape where the browser lets a page ask for it.
@@ -379,8 +388,8 @@
       return;
     }
     // iPhone may have the element methods but with fullscreen disabled.
-    var enabled = document.fullscreenEnabled || document.webkitFullscreenEnabled;
-    if (enabled && root.requestFullscreen) root.requestFullscreen().then(lockLandscape, videoFullscreen);
+    var enabled = "fullscreenEnabled" in document ? document.fullscreenEnabled : document.webkitFullscreenEnabled;
+    if (enabled && root.requestFullscreen) root.requestFullscreen().then(lockLandscape, noop);
     else if (enabled && root.webkitRequestFullscreen) { root.webkitRequestFullscreen(); lockLandscape(); }
     else videoFullscreen();
   }
@@ -470,6 +479,10 @@
     location.href = back;
   }
 
+  function keyboardFocused(el) {
+    try { return el.matches(":focus-visible"); } catch (_) { return false; } // older Safari
+  }
+
   document.addEventListener("keydown", function (e) {
     if (e.target.tagName === "INPUT") {
       if (e.key !== "Escape") return;
@@ -477,17 +490,20 @@
     wake();
     if (e.key === "Escape" && menuOpen()) { e.preventDefault(); closeMenu(); settingsBtn.focus(); return; }
     if (menuOpen() && menu.contains(document.activeElement)) {
-      // Up and down move through the menu; Enter and Space choose natively.
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        var bs = menuButtons(), i = bs.indexOf(document.activeElement);
-        var next = i < 0 ? 0 : (i + (e.key === "ArrowDown" ? 1 : -1) + bs.length) % bs.length;
-        if (bs[next]) bs[next].focus();
-      }
+      // Up/Down/Home/End move through the menu; Enter and Space choose
+      // natively; Tab leaves it closed.
+      var bs = menuButtons(), i = bs.indexOf(document.activeElement), next = -1;
+      if (e.key === "ArrowDown") next = (i + 1) % bs.length;
+      else if (e.key === "ArrowUp") next = (i - 1 + bs.length) % bs.length;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = bs.length - 1;
+      else if (e.key === "Tab") { closeMenu(); settingsBtn.focus(); e.preventDefault(); return; }
+      if (next >= 0 && bs[next]) { e.preventDefault(); bs[next].focus(); }
       return;
     }
-    // Space on a focused button or link presses it, nothing more.
-    if (e.key === " " && e.target.closest && e.target.closest("button, a")) return;
+    // Space on a button reached with the keyboard presses it; after a
+    // mouse click it still plays or pauses.
+    if (e.key === " " && e.target.closest && e.target.closest("button") && keyboardFocused(e.target)) return;
     switch (e.key) {
       case " ": case "k": e.preventDefault(); toggle(); break;
       case "ArrowLeft": e.preventDefault(); jump(-10); break;
@@ -510,7 +526,14 @@
   function showControls() { wake(); }
   function hideControls() { clearTimeout(idleTimer); root.classList.add("idle"); }
   video.addEventListener("pause", function () { root.classList.remove("idle"); });
-  video.addEventListener("playing", wake); // start the hide timer even when playback starts late
+  // Start the hide timer when playback starts late, but don't bring
+  // hidden controls back after a stall or a skip.
+  video.addEventListener("playing", function () {
+    root.classList.remove("loading");
+    if (!root.classList.contains("idle")) wake();
+  });
+  // The menu's place depends on the controls' height; close it when the window changes.
+  window.addEventListener("resize", closeMenu);
 
   // flash shows "−10" / "+10" on one side; quick repeats add up.
   var flashes = { left: { el: root.querySelector(".player-flash.left"), sum: 0, timer: null },

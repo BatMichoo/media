@@ -208,7 +208,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .player-center { display: flex; }
   .player-skip { display: none; }
 }
-.player.busy.is-playing .player-center .player-toggle { visibility: hidden; }
+.player.busy.is-playing .player-center .player-toggle,
+.player.busy.loading .player-center .player-toggle { visibility: hidden; }
 
 .player-timeline { display: flex; align-items: center; gap: 0.75rem; font-variant-numeric: tabular-nums; font-size: 0.9rem; }
 .player-seek { position: relative; flex: 1; height: 24px; cursor: pointer; touch-action: none; outline-offset: 0; }
