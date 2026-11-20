@@ -73,18 +73,22 @@ func prepareAll(kind model.Kind, ups []Upload) ([]prepared, error) {
 }
 
 // keepAll keeps checked uploads with a download; one that's already in
-// the library gets them linked in right away.
+// the library gets them linked in right away. Several for the same video
+// and language are all kept, each with a label from its name.
 func (s *Service) keepAll(ctx context.Context, d db.Download, ps []prepared) error {
 	if len(ps) == 0 {
 		return nil
 	}
-	var rows []db.Subtitle
-	for _, p := range ps {
-		row, err := s.keep(ctx, d.Kind, db.Subtitle{Hash: d.Hash, Lang: p.up.Lang, Ext: p.ext, Name: p.up.Name}, p.data)
-		if err != nil {
-			return err
-		}
-		rows = append(rows, row)
+	rows := make([]db.Subtitle, len(ps))
+	data := make([][]byte, len(ps))
+	for i, p := range ps {
+		rows[i] = db.Subtitle{Hash: d.Hash, Lang: p.up.Lang, Ext: p.ext, Name: p.up.Name}
+		data[i] = p.data
+	}
+	labelRows(d.Kind, rows)
+	rows, err := s.keepBatch(ctx, d.Kind, d.Hash, rows, data)
+	if err != nil {
+		return err
 	}
 	if d.State != model.StateFiled {
 		return nil
@@ -97,8 +101,44 @@ func (s *Service) keepAll(ctx context.Context, d db.Download, ps []prepared) err
 	return s.store.UpdateDownload(ctx, d)
 }
 
+// groupKey is the video and language a kept upload is for: uploads with
+// the same key are variants of one track.
+func groupKey(kind model.Kind, r db.Subtitle) string {
+	if r.Video != "" {
+		return "video\x00" + r.Video + "\x00" + r.Lang
+	}
+	target, _ := subtitles.Target(kind, r.Name)
+	return "target\x00" + target + "\x00" + r.Lang
+}
+
+// labelRows gives each upload that shares its video and language with
+// another one a label from its name (subtitles.Labels).
+func labelRows(kind model.Kind, rows []db.Subtitle) {
+	groups := map[string][]int{}
+	var order []string
+	for i, r := range rows {
+		k := groupKey(kind, r)
+		if _, ok := groups[k]; !ok {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], i)
+	}
+	for _, k := range order {
+		idx := groups[k]
+		names := make([]string, len(idx))
+		for j, i := range idx {
+			names[j] = rows[i].Name
+		}
+		for j, label := range subtitles.Labels(names) {
+			rows[idx[j]].Label = label
+		}
+	}
+}
+
 // placeNow links kept uploads next to a filed download's videos (found
-// among the links it already made), replacing what's at those places.
+// among the links it already made), replacing what's there for those
+// videos and languages: earlier uploads' links and the plain
+// <video>.<lang> files.
 func (s *Service) placeNow(ctx context.Context, d db.Download, rows []db.Subtitle) (int, error) {
 	have, err := s.store.Links(ctx, d.Hash)
 	if err != nil {
@@ -108,24 +148,34 @@ func (s *Service) placeNow(ctx context.Context, d db.Download, rows []db.Subtitl
 	for i, p := range have {
 		links[i] = library.Link{To: p}
 	}
+	byFile := map[string]library.Subtitle{}
+	for _, r := range rows {
+		ls := librarySub(r)
+		byFile[library.SubtitleFile(d.Hash, ls)] = ls
+	}
 	out, unplaced := library.PlaceSubtitles(d.Kind, d.Hash, links, librarySubs(rows))
-	var made []string
+	var add []library.Link
+	cleared := map[string]bool{}
 	for _, l := range out {
-		if !strings.HasPrefix(l.From, "subtitles/") {
+		sub, ok := byFile[l.From]
+		if !ok {
 			continue // a link the download made earlier
 		}
-		if err := s.clearPlace(ctx, d.Hash, l.To); err != nil {
-			return 0, err
+		stem := videoStem(l.To, sub)
+		if k := stem + "\x00" + sub.Lang; !cleared[k] {
+			cleared[k] = true
+			if err := s.clearGroup(ctx, d.Hash, stem, sub.Lang, have); err != nil {
+				return 0, err
+			}
 		}
-		m, err := library.Apply(s.dataDir, []library.Link{l})
-		made = append(made, m...)
-		if err != nil {
-			_ = s.store.AddLinks(ctx, d.Hash, made)
-			return 0, err
-		}
+		add = append(add, l)
 	}
+	made, linkErr := library.Apply(s.dataDir, add)
 	if err := s.store.AddLinks(ctx, d.Hash, made); err != nil {
 		return 0, err
+	}
+	if linkErr != nil {
+		return 0, linkErr
 	}
 	if len(made) > 0 {
 		s.refresh(ctx)
@@ -133,55 +183,83 @@ func (s *Service) placeNow(ctx context.Context, d db.Download, rows []db.Subtitl
 	return unplaced, nil
 }
 
-// clearPlace makes room for a subtitle at dst (library path): it removes
-// what's there and the same language in the other formats (so a .ass
-// replacing a .srt doesn't leave two), and forgets those links when a
-// download (hash, "" for none) made them.
-func (s *Service) clearPlace(ctx context.Context, hash, dst string) error {
-	stem := strings.TrimSuffix(dst, path.Ext(dst))
-	for ext := range subtitles.Exts {
-		p := stem + ext
+// videoStem is the video's path without its extension, from where a
+// subtitle is placed (<stem>[.<label>].<lang><ext>).
+func videoStem(dst string, sub library.Subtitle) string {
+	stem := strings.TrimSuffix(dst, "."+sub.Lang+sub.Ext)
+	if sub.Label != "" {
+		stem = strings.TrimSuffix(stem, "."+sub.Label)
+	}
+	return stem
+}
+
+// clearGroup makes room for uploads for one video (stem: its library path
+// without extension) and language: it removes <stem>.<lang> in every
+// subtitle format, and, of the links the download (hash, "" for none)
+// recorded in have, the labelled <stem>.<label>.<lang> ones, forgetting
+// the links it removes.
+func (s *Service) clearGroup(ctx context.Context, hash, stem, lang string, have []string) error {
+	remove := func(p string) error {
 		if err := os.Remove(filepath.Join(s.dataDir, filepath.FromSlash(p))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
-		if hash != "" && p != dst {
-			if err := s.store.DeleteLink(ctx, hash, p); err != nil {
-				return err
-			}
+		if hash == "" {
+			return nil
+		}
+		return s.store.DeleteLink(ctx, hash, p)
+	}
+	for ext := range subtitles.Exts {
+		if err := remove(stem + "." + lang + ext); err != nil {
+			return err
+		}
+	}
+	for _, p := range have {
+		ext := path.Ext(p)
+		rest, ok := strings.CutPrefix(strings.TrimSuffix(p, "."+lang+ext), stem+".")
+		if !subtitles.Exts[ext] || !ok || rest == "" || !strings.HasSuffix(p, "."+lang+ext) {
+			continue
+		}
+		if err := remove(p); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// keep writes an upload's file under subtitles/<hash>/ and records it,
-// first dropping an earlier upload for the same video and language.
-func (s *Service) keep(ctx context.Context, kind model.Kind, row db.Subtitle, data []byte) (db.Subtitle, error) {
-	have, err := s.store.Subtitles(ctx, row.Hash)
+// keepBatch writes uploads' files under subtitles/<hash>/ and records
+// them, then drops the earlier uploads for the same videos and languages
+// (never one another). The new ones are saved first, so a failure keeps
+// the earlier uploads.
+func (s *Service) keepBatch(ctx context.Context, kind model.Kind, hash string, rows []db.Subtitle, data [][]byte) ([]db.Subtitle, error) {
+	have, err := s.store.Subtitles(ctx, hash)
 	if err != nil {
-		return row, err
+		return nil, err
 	}
-	// The new one is saved before the one it replaces is dropped, so a
-	// failure keeps the earlier upload.
-	row.ID = newID()
-	file := filepath.Join(s.dataDir, filepath.FromSlash(library.SubtitleFile(row.Hash, librarySub(row))))
-	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-		return row, err
-	}
-	if err := os.WriteFile(file, data, 0o644); err != nil {
-		return row, err
-	}
-	if err := s.store.AddSubtitle(ctx, row); err != nil {
-		os.Remove(file)
-		return row, err
+	for i := range rows {
+		rows[i].Hash, rows[i].ID = hash, newID()
+		file := filepath.Join(s.dataDir, filepath.FromSlash(library.SubtitleFile(hash, librarySub(rows[i]))))
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(file, data[i], 0o644); err != nil {
+			return nil, err
+		}
+		if err := s.store.AddSubtitle(ctx, rows[i]); err != nil {
+			os.Remove(file)
+			return nil, err
+		}
 	}
 	for _, old := range have {
-		if old.Lang == row.Lang && sameVideo(kind, old, row) {
-			if err := s.forget(ctx, old); err != nil {
-				return row, err
+		for _, r := range rows {
+			if old.Lang == r.Lang && sameVideo(kind, old, r) {
+				if err := s.forget(ctx, old); err != nil {
+					return nil, err
+				}
+				break
 			}
 		}
 	}
-	return row, nil
+	return rows, nil
 }
 
 // forget drops a kept upload: its record and its file (a library link to
@@ -204,46 +282,107 @@ func sameVideo(kind model.Kind, a, b db.Subtitle) bool {
 	return oka && okb && ta == tb
 }
 
-// LibrarySubtitle puts an uploaded subtitle next to a video already in
-// the library (video: its path relative to the data folder), named after
-// it. When a download made that video the upload is kept with it, so it
-// survives re-filing; a video put there by hand just gets the file.
-func (s *Service) LibrarySubtitle(ctx context.Context, video string, kind model.Kind, up Upload) error {
-	p, err := prepare(up)
-	if err != nil {
-		return err
+// LibrarySubtitle puts uploaded subtitles next to a video already in the
+// library (video: its path relative to the data folder), named after it;
+// several in one language (from a zip) are all kept, each labelled from
+// its name. They replace earlier uploads for that video and language.
+// When a download made that video the uploads are kept with it, so they
+// survive re-filing; a video put there by hand just gets the files.
+func (s *Service) LibrarySubtitle(ctx context.Context, video string, kind model.Kind, ups []Upload) error {
+	switch {
+	case len(ups) == 0:
+		return invalid("error.sub_missing")
+	case len(ups) > MaxUploads:
+		return invalid("error.sub_count")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	dst := strings.TrimSuffix(video, path.Ext(video)) + "." + up.Lang + p.ext
-	dstFile := filepath.Join(s.dataDir, filepath.FromSlash(dst))
-	hash, err := s.store.LinkOwner(ctx, video)
-	if errors.Is(err, db.ErrNotFound) {
-		if err := s.clearPlace(ctx, "", dst); err != nil {
+	ps := make([]prepared, len(ups))
+	for i, up := range ups {
+		p, err := prepare(up)
+		if err != nil {
 			return err
 		}
-		return writeFile(dstFile, p.data)
+		ps[i] = p
+	}
+	// Labels per language, from the uploads' own names.
+	labels := make([]string, len(ps))
+	byLang := map[string][]int{}
+	var langs []string
+	for i, p := range ps {
+		if _, ok := byLang[p.up.Lang]; !ok {
+			langs = append(langs, p.up.Lang)
+		}
+		byLang[p.up.Lang] = append(byLang[p.up.Lang], i)
+	}
+	for _, l := range langs {
+		idx := byLang[l]
+		names := make([]string, len(idx))
+		for j, i := range idx {
+			names[j] = ps[i].up.Name
+		}
+		for j, label := range subtitles.Labels(names) {
+			labels[idx[j]] = label
+		}
+	}
+	stem := strings.TrimSuffix(video, path.Ext(video))
+	dst := func(i int) string {
+		if labels[i] != "" {
+			return stem + "." + labels[i] + "." + ps[i].up.Lang + ps[i].ext
+		}
+		return stem + "." + ps[i].up.Lang + ps[i].ext
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	hash, err := s.store.LinkOwner(ctx, video)
+	if errors.Is(err, db.ErrNotFound) {
+		for _, l := range langs {
+			if err := s.clearGroup(ctx, "", stem, l, nil); err != nil {
+				return err
+			}
+		}
+		for i, p := range ps {
+			if err := writeFile(filepath.Join(s.dataDir, filepath.FromSlash(dst(i))), p.data); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	if err != nil {
 		return err
 	}
-	row := db.Subtitle{Hash: hash, Lang: up.Lang, Ext: p.ext, Name: standIn(kind, video)}
-	if row.Name == "" {
-		row.Name, row.Video = path.Base(video), video
+	name, pinned := standIn(kind, video), ""
+	if name == "" {
+		name, pinned = path.Base(video), video
 	}
-	row, err = s.keep(ctx, kind, row, p.data)
+	rows := make([]db.Subtitle, len(ps))
+	data := make([][]byte, len(ps))
+	for i, p := range ps {
+		rows[i] = db.Subtitle{Lang: p.up.Lang, Ext: p.ext, Name: name, Video: pinned, Label: labels[i]}
+		data[i] = p.data
+	}
+	if rows, err = s.keepBatch(ctx, kind, hash, rows, data); err != nil {
+		return err
+	}
+	// Uploads win over whatever is there (earlier uploads, the torrent's
+	// own subtitle).
+	have, err := s.store.Links(ctx, hash)
 	if err != nil {
 		return err
 	}
-	// Uploads win over whatever is there (an earlier upload, the
-	// torrent's own subtitle).
-	if err := s.clearPlace(ctx, hash, dst); err != nil {
+	for _, l := range langs {
+		if err := s.clearGroup(ctx, hash, stem, l, have); err != nil {
+			return err
+		}
+	}
+	links := make([]library.Link, len(rows))
+	for i, r := range rows {
+		links[i] = library.Link{From: library.SubtitleFile(hash, librarySub(r)), To: dst(i)}
+	}
+	made, linkErr := library.Apply(s.dataDir, links)
+	if err := s.store.AddLinks(ctx, hash, made); err != nil {
 		return err
 	}
-	if _, err := library.Apply(s.dataDir, []library.Link{{From: library.SubtitleFile(hash, librarySub(row)), To: dst}}); err != nil {
-		return err
-	}
-	return s.store.AddLinks(ctx, hash, []string{dst})
+	return linkErr
 }
 
 // standIn is the name that says which video a library upload is for, so

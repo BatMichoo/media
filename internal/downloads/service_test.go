@@ -829,8 +829,8 @@ func TestLibrarySubtitleTracked(t *testing.T) {
 	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
 	require.NoError(t, e.s.Poll(ctx))
 	video := "library/Movies/Dune (2021)/Dune (2021).mkv"
-	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", Upload{Name: "one.srt", Lang: "bg", Data: []byte("one")}))
-	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", Upload{Name: "two.srt", Lang: "bg", Data: []byte("two")}))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", []Upload{{Name: "one.srt", Lang: "bg", Data: []byte("one")}}))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", []Upload{{Name: "two.srt", Lang: "bg", Data: []byte("two")}}))
 	dst := "library/Movies/Dune (2021)/Dune (2021).bg.srt"
 	assert.Equal(t, "two", e.read(t, dst))
 	assert.Len(t, e.subs(t, "h1"), 1)
@@ -853,7 +853,7 @@ func TestLibrarySubtitleUntracked(t *testing.T) {
 	video := "library/Movies/Hand/Hand.mkv"
 	require.NoError(t, os.MkdirAll(filepath.Join(e.dir, "library/Movies/Hand"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(e.dir, video), []byte("v"), 0o644))
-	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", Upload{Name: "x.srt", Lang: "en", Data: cp1251Privet}))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", []Upload{{Name: "x.srt", Lang: "en", Data: cp1251Privet}}))
 	assert.Equal(t, "Привет", e.read(t, "library/Movies/Hand/Hand.en.srt"))
 }
 
@@ -865,7 +865,7 @@ func TestLibrarySubtitlePinned(t *testing.T) {
 	require.NoError(t, e.s.Poll(ctx))
 	video := "library/Shows/Show/Season 1/03 - Title.mkv"
 	require.True(t, e.exists(video))
-	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "series", Upload{Name: "x.srt", Lang: "bg", Data: []byte("x")}))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "series", []Upload{{Name: "x.srt", Lang: "bg", Data: []byte("x")}}))
 	assert.True(t, e.exists("library/Shows/Show/Season 1/03 - Title.bg.srt"))
 	subs := e.subs(t, "h1")
 	require.Len(t, subs, 1)
@@ -879,7 +879,7 @@ func TestLibrarySubtitleEpisodeCode(t *testing.T) {
 	e.finish(t, "h1", e.file(t, "h1", "Show.S01E02.mkv"))
 	require.NoError(t, e.s.Poll(ctx))
 	video := "library/Shows/Show/Show.S01E02.mkv"
-	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "series", Upload{Name: "whatever.srt", Lang: "bg", Data: []byte("x")}))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "series", []Upload{{Name: "whatever.srt", Lang: "bg", Data: []byte("x")}}))
 	subs := e.subs(t, "h1")
 	require.Len(t, subs, 1)
 	assert.Equal(t, "S01E02", subs[0].Name)
@@ -889,9 +889,9 @@ func TestLibrarySubtitleEpisodeCode(t *testing.T) {
 
 func TestLibrarySubtitleRejects(t *testing.T) {
 	e := newEnv(t)
-	err := e.s.LibrarySubtitle(context.Background(), "library/Movies/X/X.mkv", "movie", Upload{Name: "x.txt", Lang: "bg", Data: []byte("x")})
+	err := e.s.LibrarySubtitle(context.Background(), "library/Movies/X/X.mkv", "movie", []Upload{{Name: "x.txt", Lang: "bg", Data: []byte("x")}})
 	assert.ErrorIs(t, err, ErrInvalid)
-	err = e.s.LibrarySubtitle(context.Background(), "library/Movies/X/X.mkv", "movie", Upload{Name: "x.srt", Lang: "de", Data: []byte("x")})
+	err = e.s.LibrarySubtitle(context.Background(), "library/Movies/X/X.mkv", "movie", []Upload{{Name: "x.srt", Lang: "de", Data: []byte("x")}})
 	assert.ErrorIs(t, err, ErrInvalid)
 }
 
@@ -982,8 +982,8 @@ func TestLibrarySubtitleOtherFormatReplaces(t *testing.T) {
 	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
 	require.NoError(t, e.s.Poll(ctx))
 	video := "library/Movies/Dune (2021)/Dune (2021).mkv"
-	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", Upload{Name: "a.srt", Lang: "bg", Data: []byte("one")}))
-	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", Upload{Name: "a.ass", Lang: "bg", Data: []byte("two")}))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", []Upload{{Name: "a.srt", Lang: "bg", Data: []byte("one")}}))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", []Upload{{Name: "a.ass", Lang: "bg", Data: []byte("two")}}))
 	assert.False(t, e.exists("library/Movies/Dune (2021)/Dune (2021).bg.srt"))
 	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).bg.ass"))
 	links, err := e.s.store.Links(ctx, "h1")
@@ -993,8 +993,8 @@ func TestLibrarySubtitleOtherFormatReplaces(t *testing.T) {
 	hand := "library/Movies/Hand/Hand.mkv"
 	require.NoError(t, os.MkdirAll(filepath.Join(e.dir, "library/Movies/Hand"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(e.dir, hand), []byte("v"), 0o644))
-	require.NoError(t, e.s.LibrarySubtitle(ctx, hand, "movie", Upload{Name: "a.srt", Lang: "bg", Data: []byte("one")}))
-	require.NoError(t, e.s.LibrarySubtitle(ctx, hand, "movie", Upload{Name: "a.vtt", Lang: "bg", Data: []byte("two")}))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, hand, "movie", []Upload{{Name: "a.srt", Lang: "bg", Data: []byte("one")}}))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, hand, "movie", []Upload{{Name: "a.vtt", Lang: "bg", Data: []byte("two")}}))
 	assert.False(t, e.exists("library/Movies/Hand/Hand.bg.srt"))
 	assert.True(t, e.exists("library/Movies/Hand/Hand.bg.vtt"))
 }
@@ -1290,4 +1290,99 @@ func TestGet(t *testing.T) {
 	assert.Equal(t, 2021, d.Year)
 	_, err = e.s.Get(context.Background(), "nope")
 	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+// --- several subtitles from one upload (a zip) ---
+
+func (e *env) linkRows(t *testing.T, hash string) []string {
+	t.Helper()
+	links, err := e.s.store.Links(context.Background(), hash)
+	require.NoError(t, err)
+	return links
+}
+
+func TestAddKeepsVariants(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.t.nextHash = "h1"
+	_, _, err := e.s.Add(ctx, alice, AddInput{Magnet: "magnet:?xt=urn:btih:h1", Kind: "movie", Title: "Dune", Year: 2021,
+		Subtitles: []Upload{{Name: "Dune.BluRay.srt", Lang: "bg", Data: []byte("blu")}, {Name: "Dune.WEB.srt", Lang: "bg", Data: []byte("web")}}})
+	require.NoError(t, err)
+	assert.Len(t, e.subs(t, "h1"), 2, "one upload's subtitles don't replace each other")
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	dir := "library/Movies/Dune (2021)/"
+	assert.Equal(t, "blu", e.read(t, dir+"Dune (2021).BluRay.bg.srt"))
+	assert.Equal(t, "web", e.read(t, dir+"Dune (2021).WEB.bg.srt"))
+	assert.False(t, e.exists(dir+"Dune (2021).bg.srt"))
+}
+
+func TestAddSeriesVariantsSameEpisode(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.t.nextHash = "h1"
+	_, _, err := e.s.Add(ctx, alice, AddInput{Magnet: "magnet:?xt=urn:btih:h1", Kind: "series", Title: "Show",
+		Subtitles: []Upload{
+			{Name: "Show.S01E01.BluRay.srt", Lang: "bg", Data: []byte("blu")},
+			{Name: "Show.S01E01.WEB.srt", Lang: "bg", Data: []byte("web")},
+			{Name: "Show.S01E02.srt", Lang: "bg", Data: []byte("two")},
+		}})
+	require.NoError(t, err)
+	e.finish(t, "h1", e.file(t, "h1", "Show.S01E01.mkv"), e.file(t, "h1", "Show.S01E02.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	dir := "library/Shows/Show/"
+	assert.Equal(t, "blu", e.read(t, dir+"Show.S01E01.BluRay.bg.srt"))
+	assert.Equal(t, "web", e.read(t, dir+"Show.S01E01.WEB.bg.srt"))
+	assert.Equal(t, "two", e.read(t, dir+"Show.S01E02.bg.srt"), "a lone one keeps the plain name")
+}
+
+func TestLibraryVariantsReplaceEarlier(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	dir := "library/Movies/Dune (2021)/"
+	video := dir + "Dune (2021).mkv"
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", []Upload{
+		{Name: "Dune.BluRay.srt", Lang: "bg", Data: []byte("blu")}, {Name: "Dune.WEB.srt", Lang: "bg", Data: []byte("web")}}))
+	assert.Equal(t, "blu", e.read(t, dir+"Dune (2021).BluRay.bg.srt"))
+	assert.Equal(t, "web", e.read(t, dir+"Dune (2021).WEB.bg.srt"))
+	assert.Len(t, e.subs(t, "h1"), 2)
+
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", []Upload{{Name: "fixed.srt", Lang: "bg", Data: []byte("fixed")}}))
+	assert.False(t, e.exists(dir+"Dune (2021).BluRay.bg.srt"))
+	assert.False(t, e.exists(dir+"Dune (2021).WEB.bg.srt"))
+	assert.Equal(t, "fixed", e.read(t, dir+"Dune (2021).bg.srt"))
+	assert.Len(t, e.subs(t, "h1"), 1)
+	assert.ElementsMatch(t, []string{video, dir + "Dune (2021).bg.srt"}, e.linkRows(t, "h1"))
+	entries, _ := os.ReadDir(filepath.Join(e.dir, "subtitles", "h1"))
+	assert.Len(t, entries, 1, "the replaced uploads' kept files are gone")
+}
+
+func TestLibraryVariantsHandPlaced(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	dir := "library/Movies/Hand/"
+	require.NoError(t, os.MkdirAll(filepath.Join(e.dir, dir), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(e.dir, dir+"Hand.mkv"), []byte("v"), 0o644))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, dir+"Hand.mkv", "movie", []Upload{
+		{Name: "Hand.BluRay.srt", Lang: "en", Data: []byte("blu")}, {Name: "Hand.WEB.srt", Lang: "en", Data: []byte("web")}}))
+	assert.Equal(t, "blu", e.read(t, dir+"Hand.BluRay.en.srt"))
+	assert.Equal(t, "web", e.read(t, dir+"Hand.WEB.en.srt"))
+}
+
+func TestRefileKeepsLabels(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2020)
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, "library/Movies/Dune (2020)/Dune (2020).mkv", "movie", []Upload{
+		{Name: "Dune.BluRay.srt", Lang: "bg", Data: []byte("blu")}, {Name: "Dune.WEB.srt", Lang: "bg", Data: []byte("web")}}))
+	require.NoError(t, e.s.Edit(ctx, "h1", "movie", "Dune", 2021))
+	dir := "library/Movies/Dune (2021)/"
+	assert.Equal(t, "blu", e.read(t, dir+"Dune (2021).BluRay.bg.srt"))
+	assert.Equal(t, "web", e.read(t, dir+"Dune (2021).WEB.bg.srt"))
+	assert.False(t, e.exists("library/Movies/Dune (2020)"))
 }

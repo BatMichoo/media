@@ -37,7 +37,7 @@ type Downloads interface {
 	Resume(ctx context.Context, hash string) error
 	StartNow(ctx context.Context, hash string) error
 	AnyOrder(ctx context.Context, hash string) error
-	LibrarySubtitle(ctx context.Context, video string, kind model.Kind, up downloads.Upload) error
+	LibrarySubtitle(ctx context.Context, video string, kind model.Kind, ups []downloads.Upload) error
 }
 
 // Library is asking Jellyfin to look at new files.

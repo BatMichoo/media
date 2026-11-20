@@ -94,7 +94,7 @@ func TestPostSubtitlesMovie(t *testing.T) {
 	assert.Equal(t, 303, w.Code)
 	assert.Equal(t, "/movies/"+m.ID+"?subs=1", w.Header().Get("Location"))
 	require.Len(t, a.dl.libSubs, 1)
-	assert.Equal(t, libSubCall{Video: "library/Movies/Dune (2021)/Dune (2021).mkv", Kind: "movie", Upload: downloads.Upload{Name: "dune.srt", Lang: "bg", Data: []byte("hi")}}, a.dl.libSubs[0])
+	assert.Equal(t, libSubCall{Video: "library/Movies/Dune (2021)/Dune (2021).mkv", Kind: "movie", Uploads: []downloads.Upload{{Name: "dune.srt", Lang: "bg", Data: []byte("hi")}}}, a.dl.libSubs[0])
 	assert.Equal(t, []string{m.ID}, a.lib.items)
 
 	_, doc := a.get(t, "/movies/"+m.ID+"?subs=1")

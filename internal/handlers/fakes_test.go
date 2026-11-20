@@ -97,14 +97,14 @@ type fakeDownloads struct {
 
 type libSubCall struct {
 	Video, Kind string
-	Upload      downloads.Upload
+	Uploads     []downloads.Upload
 }
 
-func (f *fakeDownloads) LibrarySubtitle(_ context.Context, video string, kind model.Kind, up downloads.Upload) error {
+func (f *fakeDownloads) LibrarySubtitle(_ context.Context, video string, kind model.Kind, ups []downloads.Upload) error {
 	if f.libSubErr != nil {
 		return f.libSubErr
 	}
-	f.libSubs = append(f.libSubs, libSubCall{video, string(kind), up})
+	f.libSubs = append(f.libSubs, libSubCall{video, string(kind), ups})
 	return nil
 }
 

@@ -99,7 +99,7 @@ func (h *web) postSubtitles(c *gin.Context) {
 		return
 	}
 	if err == nil {
-		err = h.d.Downloads.LibrarySubtitle(ctx, rel, kind, ups[0])
+		err = h.d.Downloads.LibrarySubtitle(ctx, rel, kind, ups[:1])
 	}
 	var in *downloads.InvalidError
 	if errors.As(err, &in) {
