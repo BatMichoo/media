@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -132,16 +133,28 @@ func (d downloadRow) ShowStats() bool {
 
 // UpText is "↑ 410 kB/s · 1.3 GB up · ratio 0.26".
 func (d downloadRow) UpText() string {
-	return fmt.Sprintf(i18n.T(d.Lang, "downloads.up"), rateWords(d.RateUpload), sizeWords(d.Uploaded), d.Ratio)
+	ratio := fmt.Sprintf("%.2f", d.Ratio)
+	if math.IsInf(d.Ratio, 1) {
+		ratio = "∞"
+	}
+	return fmt.Sprintf(i18n.T(d.Lang, "downloads.up"), rateWords(d.RateUpload), sizeWords(d.Uploaded), ratio)
+}
+
+// plural is key, or key+".one" when n is 1.
+func plural(l, key string, n int) string {
+	if n == 1 {
+		key += ".one"
+	}
+	return i18n.T(l, key)
 }
 
 // PeersText is "12 of 45 peers, 8 sending" ("12 peers, 8 sending" when no
 // tracker knows the seeders).
 func (d downloadRow) PeersText() string {
 	if d.Seeders >= 0 {
-		return fmt.Sprintf(i18n.T(d.Lang, "downloads.peers_of"), d.Peers, d.Seeders, d.PeersSending)
+		return fmt.Sprintf(plural(d.Lang, "downloads.peers_of", d.Seeders), d.Peers, d.Seeders, d.PeersSending)
 	}
-	return fmt.Sprintf(i18n.T(d.Lang, "downloads.peers"), d.Peers, d.PeersSending)
+	return fmt.Sprintf(plural(d.Lang, "downloads.peers", d.Peers), d.Peers, d.PeersSending)
 }
 
 // StuckText says why a download isn't moving (see downloads.Download.Stuck).
@@ -155,14 +168,14 @@ func (d downloadRow) StuckText() string {
 	case "no_peers":
 		text := i18n.T(l, "stuck.no_peers")
 		if d.Seeders >= 0 {
-			text = fmt.Sprintf(i18n.T(l, "stuck.no_peers_seeders"), d.Seeders)
+			text = fmt.Sprintf(plural(l, "stuck.no_peers_seeders", d.Seeders), d.Seeders)
 		}
 		if d.PortClosed && d.Port > 0 {
 			text += ". " + fmt.Sprintf(i18n.T(l, "stuck.port_closed"), d.Port)
 		}
 		return text
 	case "in_order", "not_sending":
-		return fmt.Sprintf(i18n.T(l, "stuck.not_sending"), d.Peers)
+		return fmt.Sprintf(plural(l, "stuck.not_sending", d.Peers), d.Peers)
 	}
 	return ""
 }

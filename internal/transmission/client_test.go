@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -371,4 +372,15 @@ func TestGetChecking(t *testing.T) {
 	assert.True(t, got["a"].Checking)
 	assert.True(t, got["b"].Checking)
 	assert.False(t, got["c"].Checking)
+}
+
+func TestGetRatioInfinite(t *testing.T) {
+	// -2: uploaded something while downloading nothing.
+	f := &fake{reply: func(call) map[string]any {
+		return ok(map[string]any{"torrents": []any{map[string]any{"hashString": "A", "uploadRatio": -2, "status": 6}}})
+	}}
+	_, c := f.server(t)
+	got, err := c.Get(context.Background(), []string{"a"})
+	require.NoError(t, err)
+	assert.True(t, math.IsInf(got["a"].Ratio, 1))
 }

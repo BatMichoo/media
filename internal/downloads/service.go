@@ -295,7 +295,7 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 		out[i].Live = true
 		out[i].RateUpload, out[i].Uploaded, out[i].Ratio = t.RateUpload, t.Uploaded, t.Ratio
 		out[i].Peers, out[i].PeersSending, out[i].Seeders = t.Peers, t.PeersSending, t.Seeders
-		out[i].QueuePos, out[i].TrackerError = t.QueuePos, t.TrackerError
+		out[i].QueuePos, out[i].TrackerError = queueRank(live, t), t.TrackerError
 		out[i].Stuck = s.stuck(out[i].Hash, stuckReason(out[i].State, out[i].Paused, t))
 		if out[i].Stuck == "no_peers" {
 			out[i].PortClosed, out[i].Port = s.portClosed()
@@ -310,6 +310,22 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 		}
 	}
 	return out, nil
+}
+
+// queueRank is t's place among the queued torrents in live (1 = next),
+// 0 when it isn't queued. Transmission's own position counts every
+// torrent, queued or not.
+func queueRank(live map[string]transmission.Torrent, t transmission.Torrent) int {
+	if !t.Queued {
+		return 0
+	}
+	rank := 1
+	for _, o := range live {
+		if o.Queued && o.QueuePos < t.QueuePos {
+			rank++
+		}
+	}
+	return rank
 }
 
 // stuckReason is why a downloading torrent isn't moving, "" when it is
@@ -583,11 +599,13 @@ func (s *Service) AnyOrder(ctx context.Context, hash string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.t.SetSequential(ctx, hash, false); err != nil {
+	// Saved first: if Transmission then fails, the poll still won't turn
+	// in-order back on, and the button shows again for another try.
+	r.InOrder = false
+	if err := s.store.UpdateDownload(ctx, r); err != nil {
 		return err
 	}
-	r.InOrder = false
-	return s.store.UpdateDownload(ctx, r)
+	return s.t.SetSequential(ctx, hash, false)
 }
 
 // check moves one downloading row on: failed if Transmission lost it,

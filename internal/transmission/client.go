@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -53,7 +54,7 @@ type Torrent struct {
 
 	RateUpload   int64   // bytes per second
 	Uploaded     int64   // bytes uploaded in all
-	Ratio        float64 // uploaded / downloaded; 0 when not known
+	Ratio        float64 // uploaded / downloaded; 0 when not known, +Inf when nothing was downloaded
 	Peers        int     // peers connected
 	PeersSending int     // connected peers sending to us
 	Queued       bool    // waiting in Transmission's download queue
@@ -121,7 +122,7 @@ func (c *Client) Get(ctx context.Context, hashes []string) (map[string]Torrent, 
 			Sequential:   t.Sequential,
 			RateUpload:   t.RateUpload,
 			Uploaded:     t.UploadedEver,
-			Ratio:        max(t.UploadRatio, 0),
+			Ratio:        ratio(t.UploadRatio),
 			Peers:        t.PeersConnected,
 			PeersSending: t.PeersSendingToUs,
 			Queued:       t.Status == 3,
@@ -147,6 +148,18 @@ func (c *Client) Get(ctx context.Context, hashes []string) (map[string]Torrent, 
 		got[tor.Hash] = tor
 	}
 	return got, nil
+}
+
+// ratio is Transmission's upload ratio: -2 means infinite (uploaded while
+// nothing was downloaded), -1 not known (0 here).
+func ratio(r float64) float64 {
+	switch {
+	case r == -2:
+		return math.Inf(1)
+	case r < 0:
+		return 0
+	}
+	return r
 }
 
 // trackerSummary is the highest seeder count the trackers know (-1 when

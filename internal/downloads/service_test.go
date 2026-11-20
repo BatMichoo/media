@@ -36,6 +36,7 @@ type fakeTorrents struct {
 	portCalls int
 	portOpen  bool
 	portErr   error
+	seqErr    error
 	portGate  chan struct{} // when set, PortOpen signals inPort and waits for it
 	inPort    chan struct{}
 	wantSet   []string // "hash +0,1 -2" per SetWanted call
@@ -122,6 +123,9 @@ func (f *fakeTorrents) Start(_ context.Context, hash string) error {
 func (f *fakeTorrents) SetSequential(_ context.Context, hash string, on bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.seqErr != nil {
+		return f.seqErr
+	}
 	if on {
 		f.seq = append(f.seq, hash)
 	} else {
@@ -1056,7 +1060,7 @@ func TestStuckReasons(t *testing.T) {
 			d := e.get(t, "h1")
 			assert.Equal(t, c.reason, d.Stuck)
 			if c.reason == "queued" {
-				assert.Equal(t, 2, d.QueuePos)
+				assert.Equal(t, 1, d.QueuePos, "the only queued download is next")
 			}
 			if c.reason == "tracker" {
 				assert.Equal(t, "Connection failed", d.TrackerError)
@@ -1223,4 +1227,31 @@ func TestNotStuckWhileChecking(t *testing.T) {
 	e.addMovie(t, "h1", "Dune", 2021)
 	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Checking: true})
 	assert.Equal(t, "", e.get(t, "h1").Stuck)
+}
+
+func TestQueuePosAmongOurs(t *testing.T) {
+	// Transmission counts every torrent in its queue; the page counts the
+	// queued downloads ahead of this one, plus one.
+	e := newEnv(t)
+	e.addMovie(t, "a", "A", 2021)
+	e.addMovie(t, "b", "B", 2021)
+	e.addMovie(t, "c", "C", 2021)
+	e.t.set(transmission.Torrent{Hash: "a", PercentDone: 0.1, Queued: true, QueuePos: 9})
+	e.t.set(transmission.Torrent{Hash: "b", PercentDone: 0.1, Queued: true, QueuePos: 4})
+	e.t.set(transmission.Torrent{Hash: "c", PercentDone: 0.1, QueuePos: 1, RateDownload: 10})
+	assert.Equal(t, 2, e.get(t, "a").QueuePos)
+	assert.Equal(t, 1, e.get(t, "b").QueuePos)
+}
+
+func TestAnyOrderSavedEvenIfTransmissionFails(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Sequential: true})
+	e.t.seqErr = errors.New("transmission down")
+	assert.Error(t, e.s.AnyOrder(ctx, "h1"))
+	assert.False(t, e.get(t, "h1").InOrder, "saved first, so the poll won't turn in-order back on")
+	e.t.seqErr = nil
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Empty(t, e.t.seq)
 }

@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"math"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,4 +114,29 @@ func TestPostStartNowAndAnyOrder(t *testing.T) {
 	assert.Equal(t, []string{"start-now a1", "any-order a1"}, a.dl.paused)
 	w, _ = a.post(t, "/downloads/zz/any-order", url.Values{}, "HX-Request", "true")
 	assert.Equal(t, 404, w.Code)
+}
+
+func TestTrackerErrorShownOnce(t *testing.T) {
+	a := newApp(t)
+	a.dl.list = []downloads.Download{live(downloads.Download{Hash: "a1", Title: "A", Stuck: "tracker",
+		TrackerError: "Connection failed", Reason: "Connection failed", Seeders: -1})}
+	_, doc := a.get(t, "/downloads")
+	assert.Equal(t, 1, strings.Count(doc.Find(".download").Text(), "Connection failed"))
+}
+
+func TestStatsPlurals(t *testing.T) {
+	row := func(l string, d downloads.Download) downloadRow { return downloadRow{Download: d, Lang: l} }
+	assert.Equal(t, "1 peer, 0 sending", row("en", downloads.Download{Peers: 1, Seeders: -1}).PeersText())
+	assert.Equal(t, "2 peers, 1 sending", row("en", downloads.Download{Peers: 2, PeersSending: 1, Seeders: -1}).PeersText())
+	assert.Equal(t, "1 of 1 peer, 1 sending", row("en", downloads.Download{Peers: 1, PeersSending: 1, Seeders: 1}).PeersText())
+	assert.Equal(t, "No peers connected (the tracker sees 1 seeder)", row("en", downloads.Download{Stuck: "no_peers", Seeders: 1}).StuckText())
+	assert.Equal(t, "1 peer connected, but it isn't sending", row("en", downloads.Download{Stuck: "in_order", Peers: 1}).StuckText())
+	assert.Equal(t, "3 peers connected, but none sending", row("en", downloads.Download{Stuck: "in_order", Peers: 3}).StuckText())
+	assert.Contains(t, row("bg", downloads.Download{Peers: 1, Seeders: -1}).PeersText(), "1 пиър,")
+	assert.Contains(t, row("bg", downloads.Download{Stuck: "no_peers", Seeders: 1}).StuckText(), "1 сийдър)")
+}
+
+func TestRatioInfinite(t *testing.T) {
+	d := downloadRow{Download: downloads.Download{Ratio: math.Inf(1)}, Lang: "en"}
+	assert.Contains(t, d.UpText(), "ratio ∞")
 }

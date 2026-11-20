@@ -103,7 +103,7 @@
   "pause": "Pause",
   "resume": "Resume",
   "state.paused": "Paused",
-  "downloads.up": "↑ %s · %s up · ratio %.2f",
+  "downloads.up": "↑ %s · %s up · ratio %s",
   "downloads.peers": "%d peers, %d sending",
   "downloads.peers_of": "%d of %d peers, %d sending",
   "stuck.queued": "Queued (#%d): Transmission downloads only a few at a time",
@@ -114,5 +114,9 @@
   "stuck.not_sending": "%d peers connected, but none sending",
   "start_now": "Start now",
   "any_order": "Download in any order",
-  "any_order.note": "It can't be watched until it finishes."
+  "any_order.note": "It can't be watched until it finishes.",
+  "downloads.peers.one": "%d peer, %d sending",
+  "downloads.peers_of.one": "%d of %d peer, %d sending",
+  "stuck.no_peers_seeders.one": "No peers connected (the tracker sees %d seeder)",
+  "stuck.not_sending.one": "%d peer connected, but it isn't sending"
 }

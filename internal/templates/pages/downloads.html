@@ -51,7 +51,7 @@
       <p class="download-stats"><span>{{ .UpText }}</span> · <span>{{ .PeersText }}</span></p>
       {{ end }}
       {{ end }}
-      {{ if .Reason }}<p class="reason">{{ reason .Lang .Reason }}</p>{{ end }}
+      {{ if and .Reason (not (and .ShowStats (eq .Stuck "tracker"))) }}<p class="reason">{{ reason .Lang .Reason }}</p>{{ end }}
       <div class="download-foot">
         <div class="download-meta">
           {{ if .SeedingDone }}<span>{{ t .Lang "downloads.seeding_done" }}</span>
