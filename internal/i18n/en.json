@@ -55,6 +55,8 @@
   "subs.the_file": "The file",
   "error.sub_missing": "Choose a subtitle file.",
   "error.not_in_library": "This video isn't in the media folder, so subtitles can't be added here.",
+  "downloads.subs_unplaced_one": "%d subtitle didn't match a video",
+  "downloads.subs_unplaced_many": "%d subtitles didn't match a video",
   "error.too_big": "That .torrent file is too big (10 MB at most).",
   "error.generic": "Something went wrong. Try again.",
   "error.not_found": "That isn't in the library.",

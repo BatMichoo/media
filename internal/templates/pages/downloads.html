@@ -36,7 +36,7 @@
         </div>
       </div>
       {{ end }}
-      {{ if .Reason }}<p class="reason">{{ .Reason }}</p>{{ end }}
+      {{ if .Reason }}<p class="reason">{{ reason .Lang .Reason }}</p>{{ end }}
       <div class="download-foot">
         <div class="download-meta">
           {{ if .SeedingDone }}<span>{{ t .Lang "downloads.seeding_done" }}</span>

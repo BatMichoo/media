@@ -936,3 +936,46 @@ func TestLibrarySubtitleOtherFormatReplaces(t *testing.T) {
 	assert.False(t, e.exists("library/Movies/Hand/Hand.bg.srt"))
 	assert.True(t, e.exists("library/Movies/Hand/Hand.bg.vtt"))
 }
+
+func TestRemoveKeepFilesDropsKeptSubtitles(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	require.NoError(t, e.s.storeUploads(ctx, "h1", "movie", []Upload{{Name: "a.srt", Lang: "bg", Data: []byte("bg")}}))
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	require.NoError(t, e.s.Remove(ctx, "h1", false))
+	assert.False(t, e.exists("subtitles/h1"), "the app's own copies go")
+	assert.Equal(t, "bg", e.read(t, "library/Movies/Dune (2021)/Dune (2021).bg.srt"), "the library keeps its subtitle")
+}
+
+func TestReplaceKeepsOldWhenSavingFails(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	require.NoError(t, e.s.storeUploads(ctx, "h1", "movie", []Upload{{Name: "a.srt", Lang: "bg", Data: []byte("old")}}))
+	dir := filepath.Join(e.dir, "subtitles", "h1")
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	err := e.s.storeUploads(ctx, "h1", "movie", []Upload{{Name: "b.srt", Lang: "bg", Data: []byte("new")}})
+	require.Error(t, err)
+	subs := e.subs(t, "h1")
+	require.Len(t, subs, 1, "the earlier upload is still recorded")
+	assert.Equal(t, "old", e.read(t, "subtitles/h1/"+subs[0].ID+".srt"))
+}
+
+func TestRefileLeavesHandPlacedSubtitle(t *testing.T) {
+	// A file someone put at the subtitle's place by hand is never
+	// overwritten when the download is filed; the download still files.
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	require.NoError(t, e.s.storeUploads(ctx, "h1", "movie", []Upload{{Name: "a.srt", Lang: "bg", Data: []byte("upload")}}))
+	dst := filepath.Join(e.dir, "library/Movies/Dune (2021)/Dune (2021).bg.srt")
+	require.NoError(t, os.MkdirAll(filepath.Dir(dst), 0o755))
+	require.NoError(t, os.WriteFile(dst, []byte("by hand"), 0o644))
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Equal(t, "filed", e.get(t, "h1").State)
+	assert.Equal(t, "by hand", e.read(t, "library/Movies/Dune (2021)/Dune (2021).bg.srt"))
+}

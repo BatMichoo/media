@@ -5,12 +5,14 @@ package subtitles
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -39,7 +41,11 @@ func Prepare(name string, data []byte) (ext string, out []byte, err error) {
 		return "", nil, ErrEmpty
 	case len(data) > MaxSize:
 		return "", nil, ErrSize
-	case bytes.IndexByte(data, 0) >= 0:
+	}
+	if u, ok := fromUTF16(data); ok {
+		return ext, u, nil
+	}
+	if bytes.IndexByte(data, 0) >= 0 {
 		return "", nil, ErrBinary
 	}
 	if utf8.Valid(data) {
@@ -55,6 +61,28 @@ func Prepare(name string, data []byte) (ext string, out []byte, err error) {
 		}
 	}
 	return ext, []byte(b.String()), nil
+}
+
+// fromUTF16 decodes text that starts with a UTF-16 byte order mark
+// (Windows "Unicode" files).
+func fromUTF16(data []byte) ([]byte, bool) {
+	if len(data) < 2 || len(data)%2 != 0 {
+		return nil, false
+	}
+	var order binary.ByteOrder
+	switch {
+	case data[0] == 0xFF && data[1] == 0xFE:
+		order = binary.LittleEndian
+	case data[0] == 0xFE && data[1] == 0xFF:
+		order = binary.BigEndian
+	default:
+		return nil, false
+	}
+	units := make([]uint16, 0, len(data)/2-1)
+	for i := 2; i < len(data); i += 2 {
+		units = append(units, order.Uint16(data[i:]))
+	}
+	return []byte(string(utf16.Decode(units))), true
 }
 
 // cp1251 maps Windows-1251 bytes 0x80..0xFF to runes.

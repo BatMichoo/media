@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -302,4 +303,20 @@ func uploads(c *gin.Context, field, lang string) ([]downloads.Upload, error) {
 		out = append(out, downloads.Upload{Name: fh.Filename, Lang: lang, Data: data})
 	}
 	return out, nil
+}
+
+var unplacedReason = regexp.MustCompile(`^(\d+) subtitles? didn't match a video$`)
+
+// reasonText is a download's reason in the page's language where the
+// app wrote it (the rest come from elsewhere and stay as they are).
+func reasonText(l, reason string) string {
+	if m := unplacedReason.FindStringSubmatch(reason); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		key := "downloads.subs_unplaced_many"
+		if n == 1 {
+			key = "downloads.subs_unplaced_one"
+		}
+		return fmt.Sprintf(i18n.T(l, key), n)
+	}
+	return reason
 }

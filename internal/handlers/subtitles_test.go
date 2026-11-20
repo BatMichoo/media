@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"mime/multipart"
+	"strings"
 	"testing"
 
 	"github.com/BatMichoo/media/internal/downloads"
@@ -163,4 +164,26 @@ func TestPostSubtitlesTooBig(t *testing.T) {
 	w, _ := a.postMultipart(t, "/subtitles/"+m.ID, body, ct)
 	assert.Equal(t, 303, w.Code)
 	assert.Contains(t, w.Header().Get("Location"), "subs_error=error.sub_size")
+}
+
+func TestSubsErrorFileName(t *testing.T) {
+	a := newApp(t)
+	m := movie("Dune", "Dune (2021)", 2021)
+	a.cat.items[m.ID] = m
+	_, doc := a.get(t, "/movies/"+m.ID+"?subs_error=error.sub_missing&subs_file=Your+session+expired")
+	assert.NotContains(t, doc.Find(".form-error").Text(), "session", "a message without a file name shows none")
+
+	long := strings.Repeat("x", 300) + ".srt"
+	_, doc = a.get(t, "/movies/"+m.ID+"?subs_error=error.sub_type&subs_file="+long)
+	msg := doc.Find(".form-error").Text()
+	assert.Less(t, len([]rune(msg)), 160, msg)
+}
+
+func TestDownloadsUnplacedReasonTranslated(t *testing.T) {
+	a := newApp(t)
+	a.dl.list = []downloads.Download{{Hash: "a1", Kind: "movie", Title: "Dune", Year: 2021, State: "filed", Reason: "2 subtitles didn't match a video"}}
+	_, doc := a.get(t, "/downloads", "Cookie", "homeserver_lang=bg")
+	assert.Contains(t, doc.Find(".reason").Text(), "2 субтитри")
+	_, doc = a.get(t, "/downloads")
+	assert.Contains(t, doc.Find(".reason").Text(), "2 subtitles didn't match a video")
 }

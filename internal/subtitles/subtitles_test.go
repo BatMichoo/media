@@ -75,3 +75,18 @@ func TestTarget(t *testing.T) {
 		assert.Equal(t, c.want, got, c.name)
 	}
 }
+
+func TestPrepareUTF16(t *testing.T) {
+	le := []byte{0xFF, 0xFE}
+	be := []byte{0xFE, 0xFF}
+	for _, r := range "Здравей\r\n" {
+		le = append(le, byte(r), byte(r>>8))
+		be = append(be, byte(r>>8), byte(r))
+	}
+	_, out, err := Prepare("a.srt", le)
+	require.NoError(t, err)
+	assert.Equal(t, "Здравей\r\n", string(out))
+	_, out, err = Prepare("a.srt", be)
+	require.NoError(t, err)
+	assert.Equal(t, "Здравей\r\n", string(out))
+}

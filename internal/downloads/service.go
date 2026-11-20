@@ -530,9 +530,11 @@ func (s *Service) Remove(ctx context.Context, hash string, deleteFiles bool) err
 		if err := library.Undo(s.dataDir, links); err != nil {
 			return err
 		}
-		if err := os.RemoveAll(filepath.Join(s.dataDir, "subtitles", hash)); err != nil {
-			return err
-		}
+	}
+	// The app's own copies of uploaded subtitles go either way; ones in
+	// the library are hard links and keep their content.
+	if err := os.RemoveAll(filepath.Join(s.dataDir, "subtitles", hash)); err != nil {
+		return err
 	}
 	delete(s.pending, hash)
 	if err := s.store.DeleteDownload(ctx, r.Hash); err != nil {

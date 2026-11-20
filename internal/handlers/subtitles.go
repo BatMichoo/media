@@ -128,10 +128,14 @@ func subsNotice(c *gin.Context, l string) (added bool, errMsg string) {
 	return false, ""
 }
 
-// fileOr is a file name for an error message, or "the file" when unknown.
+// fileOr is a file name for an error message (shortened), or "the file"
+// when unknown.
 func fileOr(l, name string) string {
-	if name != "" {
-		return name
+	if name == "" {
+		return i18n.T(l, "subs.the_file")
 	}
-	return i18n.T(l, "subs.the_file")
+	if r := []rune(name); len(r) > 80 {
+		return string(r[:40]) + "…" + string(r[len(r)-20:])
+	}
+	return name
 }

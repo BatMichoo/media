@@ -169,13 +169,8 @@ func (s *Service) keep(ctx context.Context, kind string, row db.Subtitle, data [
 	if err != nil {
 		return row, err
 	}
-	for _, old := range have {
-		if old.Lang == row.Lang && sameVideo(kind, old, row) {
-			if err := s.forget(ctx, old); err != nil {
-				return row, err
-			}
-		}
-	}
+	// The new one is saved before the one it replaces is dropped, so a
+	// failure keeps the earlier upload.
 	row.ID = newID()
 	file := filepath.Join(s.dataDir, filepath.FromSlash(library.SubtitleFile(row.Hash, librarySub(row))))
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
@@ -187,6 +182,13 @@ func (s *Service) keep(ctx context.Context, kind string, row db.Subtitle, data [
 	if err := s.store.AddSubtitle(ctx, row); err != nil {
 		os.Remove(file)
 		return row, err
+	}
+	for _, old := range have {
+		if old.Lang == row.Lang && sameVideo(kind, old, row) {
+			if err := s.forget(ctx, old); err != nil {
+				return row, err
+			}
+		}
 	}
 	return row, nil
 }
