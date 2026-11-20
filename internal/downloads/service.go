@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -26,7 +27,10 @@ var ErrInvalid = errors.New("invalid input")
 var ErrNotFound = errors.New("no such download")
 
 // InvalidError says what was wrong, as a message key the pages translate.
-type InvalidError struct{ Key string }
+type InvalidError struct {
+	Key string
+	Arg string // filled into the message (e.g. a file name), or ""
+}
 
 func (e *InvalidError) Error() string        { return "invalid input: " + e.Key }
 func (e *InvalidError) Is(target error) bool { return target == ErrInvalid }
@@ -61,6 +65,11 @@ type Store interface {
 	AddLinks(ctx context.Context, hash string, paths []string) error
 	Links(ctx context.Context, hash string) ([]string, error)
 	DeleteLinks(ctx context.Context, hash string) error
+	DeleteLink(ctx context.Context, hash, path string) error
+	LinkOwner(ctx context.Context, path string) (string, error)
+	AddSubtitle(ctx context.Context, s db.Subtitle) error
+	Subtitles(ctx context.Context, hash string) ([]db.Subtitle, error)
+	DeleteSubtitle(ctx context.Context, hash, id string) error
 }
 
 // Download is a download as the pages show it.
@@ -435,6 +444,11 @@ func (s *Service) file(ctx context.Context, r db.Download, t transmission.Torren
 		r.State, r.Reason = "failed", err.Error()
 		return s.store.UpdateDownload(ctx, r)
 	}
+	subs, err := s.store.Subtitles(ctx, r.Hash)
+	if err != nil {
+		return err
+	}
+	links, unplaced := library.PlaceSubtitles(r.Kind, r.Hash, links, librarySubs(subs))
 	made, linkErr := library.Apply(s.dataDir, links)
 	if err := s.store.AddLinks(ctx, r.Hash, made); err != nil {
 		return err
@@ -447,6 +461,9 @@ func (s *Service) file(ctx context.Context, r db.Download, t transmission.Torren
 		r.State, r.Reason = "filed", "already in the library"
 	default:
 		r.State, r.Reason = "filed", ""
+	}
+	if linkErr == nil && unplaced > 0 {
+		r.Reason = unplacedText(unplaced)
 	}
 	if err := s.store.UpdateDownload(ctx, r); err != nil {
 		return err
@@ -491,6 +508,9 @@ func (s *Service) Remove(ctx context.Context, hash string, deleteFiles bool) err
 			return err
 		}
 		if err := library.Undo(s.dataDir, links); err != nil {
+			return err
+		}
+		if err := os.RemoveAll(filepath.Join(s.dataDir, "subtitles", hash)); err != nil {
 			return err
 		}
 	}

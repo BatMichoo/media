@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/BatMichoo/media/internal/db/dbtest"
+	"github.com/BatMichoo/media/internal/db"
 	"github.com/BatMichoo/media/internal/library"
 	"github.com/BatMichoo/media/internal/model"
 	"github.com/BatMichoo/media/internal/transmission"
@@ -675,4 +676,161 @@ func TestAddTitleTooLong(t *testing.T) {
 	assert.ErrorIs(t, e.s.Edit(context.Background(), "nope", "movie", long, 2000), ErrInvalid)
 	_, _, err = e.s.Add(context.Background(), alice, AddInput{Magnet: "magnet:?x", Kind: "movie", Title: strings.Repeat("Ж", 70), Year: 2000})
 	assert.NoError(t, err)
+}
+
+// --- uploaded subtitles ---
+
+var cp1251Privet = []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2} // "Привет"
+
+func (e *env) addSeries(t *testing.T, hash, title string) {
+	t.Helper()
+	e.t.nextHash = hash
+	_, _, err := e.s.Add(context.Background(), alice, AddInput{Magnet: "magnet:?xt=urn:btih:" + hash, Kind: "series", Title: title})
+	require.NoError(t, err)
+}
+
+func (e *env) read(t *testing.T, rel string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(e.dir, rel))
+	require.NoError(t, err)
+	return string(b)
+}
+
+func (e *env) subs(t *testing.T, hash string) []db.Subtitle {
+	t.Helper()
+	s, err := e.s.store.Subtitles(context.Background(), hash)
+	require.NoError(t, err)
+	return s
+}
+
+func TestFileSubtitles(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	require.NoError(t, e.s.storeUploads(ctx, "h1", "movie", []Upload{{Name: "dune.bg.srt", Lang: "bg", Data: cp1251Privet}}))
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+
+	d := e.get(t, "h1")
+	assert.Equal(t, "filed", d.State)
+	assert.Equal(t, "", d.Reason)
+	dst := "library/Movies/Dune (2021)/Dune (2021).bg.srt"
+	assert.Equal(t, "Привет", e.read(t, dst))
+	subs := e.subs(t, "h1")
+	require.Len(t, subs, 1)
+	a, err := os.Stat(filepath.Join(e.dir, dst))
+	require.NoError(t, err)
+	b, err := os.Stat(filepath.Join(e.dir, "subtitles", "h1", subs[0].ID+".srt"))
+	require.NoError(t, err)
+	assert.True(t, os.SameFile(a, b), "library file is a link to the kept one")
+}
+
+func TestFileSubtitleUnplaced(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addSeries(t, "h1", "Show")
+	require.NoError(t, e.s.storeUploads(ctx, "h1", "series", []Upload{{Name: "Show.S01E09.srt", Lang: "bg", Data: []byte("x")}}))
+	e.finish(t, "h1", e.file(t, "h1", "Show.S01E01.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	d := e.get(t, "h1")
+	assert.Equal(t, "filed", d.State)
+	assert.Contains(t, d.Reason, "1 subtitle")
+}
+
+func TestEditKeepsSubtitles(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	require.NoError(t, e.s.storeUploads(ctx, "h1", "movie", []Upload{{Name: "a.srt", Lang: "bg", Data: []byte("x")}}))
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	require.NoError(t, e.s.Edit(ctx, "h1", "movie", "Dune Part One", 2021))
+	assert.True(t, e.exists("library/Movies/Dune Part One (2021)/Dune Part One (2021).bg.srt"))
+	assert.False(t, e.exists("library/Movies/Dune (2021)"))
+	assert.Len(t, e.subs(t, "h1"), 1)
+}
+
+func TestRemoveDeletesSubtitles(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	require.NoError(t, e.s.storeUploads(ctx, "h1", "movie", []Upload{{Name: "a.srt", Lang: "bg", Data: []byte("x")}}))
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	require.NoError(t, e.s.Remove(ctx, "h1", true))
+	assert.False(t, e.exists("subtitles/h1"))
+	assert.False(t, e.exists("library/Movies/Dune (2021)"))
+}
+
+func TestLibrarySubtitleTracked(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	video := "library/Movies/Dune (2021)/Dune (2021).mkv"
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", Upload{Name: "one.srt", Lang: "bg", Data: []byte("one")}))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", Upload{Name: "two.srt", Lang: "bg", Data: []byte("two")}))
+	dst := "library/Movies/Dune (2021)/Dune (2021).bg.srt"
+	assert.Equal(t, "two", e.read(t, dst))
+	assert.Len(t, e.subs(t, "h1"), 1)
+	links, err := e.s.store.Links(ctx, "h1")
+	require.NoError(t, err)
+	n := 0
+	for _, l := range links {
+		if l == dst {
+			n++
+		}
+	}
+	assert.Equal(t, 1, n)
+	entries, _ := os.ReadDir(filepath.Join(e.dir, "subtitles", "h1"))
+	assert.Len(t, entries, 1, "the replaced upload's kept file is gone")
+}
+
+func TestLibrarySubtitleUntracked(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	video := "library/Movies/Hand/Hand.mkv"
+	require.NoError(t, os.MkdirAll(filepath.Join(e.dir, "library/Movies/Hand"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(e.dir, video), []byte("v"), 0o644))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", Upload{Name: "x.srt", Lang: "en", Data: cp1251Privet}))
+	assert.Equal(t, "Привет", e.read(t, "library/Movies/Hand/Hand.en.srt"))
+}
+
+func TestLibrarySubtitlePinned(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addSeries(t, "h1", "Show")
+	e.finish(t, "h1", e.file(t, "h1", "Season 1/03 - Title.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	video := "library/Shows/Show/Season 1/03 - Title.mkv"
+	require.True(t, e.exists(video))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "series", Upload{Name: "x.srt", Lang: "bg", Data: []byte("x")}))
+	assert.True(t, e.exists("library/Shows/Show/Season 1/03 - Title.bg.srt"))
+	subs := e.subs(t, "h1")
+	require.Len(t, subs, 1)
+	assert.Equal(t, video, subs[0].Video)
+}
+
+func TestLibrarySubtitleEpisodeCode(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addSeries(t, "h1", "Show")
+	e.finish(t, "h1", e.file(t, "h1", "Show.S01E02.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	video := "library/Shows/Show/Show.S01E02.mkv"
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "series", Upload{Name: "whatever.srt", Lang: "bg", Data: []byte("x")}))
+	subs := e.subs(t, "h1")
+	require.Len(t, subs, 1)
+	assert.Equal(t, "S01E02", subs[0].Name)
+	assert.Equal(t, "", subs[0].Video)
+	assert.True(t, e.exists("library/Shows/Show/Show.S01E02.bg.srt"))
+}
+
+func TestLibrarySubtitleRejects(t *testing.T) {
+	e := newEnv(t)
+	err := e.s.LibrarySubtitle(context.Background(), "library/Movies/X/X.mkv", "movie", Upload{Name: "x.txt", Lang: "bg", Data: []byte("x")})
+	assert.ErrorIs(t, err, ErrInvalid)
+	err = e.s.LibrarySubtitle(context.Background(), "library/Movies/X/X.mkv", "movie", Upload{Name: "x.srt", Lang: "de", Data: []byte("x")})
+	assert.ErrorIs(t, err, ErrInvalid)
 }
