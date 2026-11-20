@@ -13,10 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var errNotFound = errors.New("not found")
-
-func isJellyfinNotFound(err error) bool { return errors.Is(err, jellyfin.ErrNotFound) }
-
 // card is one poster: a movie, a series or an episode. Image is "" when
 // Jellyfin has no picture; the card then shows its title on a tint.
 type card struct {

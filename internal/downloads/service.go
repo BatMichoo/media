@@ -61,7 +61,6 @@ type Store interface {
 	InsertDownload(ctx context.Context, d db.Download) error
 	GetDownload(ctx context.Context, hash string) (db.Download, error)
 	ListDownloads(ctx context.Context) ([]db.Download, error)
-	ListDownloadsByState(ctx context.Context, state string) ([]db.Download, error)
 	UpdateDownload(ctx context.Context, d db.Download) error
 	DeleteDownload(ctx context.Context, hash string) error
 	AddLinks(ctx context.Context, hash string, paths []string) error

@@ -33,7 +33,12 @@ func Open(ctx context.Context, cfg config.DBConfig) (*DB, error) {
 		if err == nil || time.Now().After(deadline) {
 			break
 		}
-		time.Sleep(time.Second)
+		select {
+		case <-ctx.Done():
+			conn.Close()
+			return nil, fmt.Errorf("reach database: %w", ctx.Err())
+		case <-time.After(time.Second):
+		}
 	}
 	if err != nil {
 		conn.Close()

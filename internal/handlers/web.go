@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BatMichoo/media/internal/jellyfin"
+
 	"github.com/BatMichoo/media/internal/i18n"
 	"github.com/BatMichoo/media/internal/static"
 	"github.com/BatMichoo/media/internal/templates"
@@ -259,9 +261,8 @@ type message struct {
 	Lang, Text string
 }
 
-func isNotFound(err error) bool {
-	return errors.Is(err, errNotFound) || isJellyfinNotFound(err)
-}
+// isNotFound is true when Jellyfin doesn't know the item.
+func isNotFound(err error) bool { return errors.Is(err, jellyfin.ErrNotFound) }
 
 // sizeWords is a size in bytes in words (1 kB = 1000 bytes, as speeds).
 func sizeWords(b int64) string {

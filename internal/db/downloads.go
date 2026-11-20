@@ -44,9 +44,9 @@ func nullYear(y int) any {
 
 // InsertDownload records a new download.
 func (d *DB) InsertDownload(ctx context.Context, dl Download) error {
-	_, err := d.SQL.ExecContext(ctx, `INSERT INTO downloads (hash, kind, title, year, name, added_by, added_by_name, state, reason, paused)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.AddedBy, dl.AddedByName, dl.State, dl.Reason, dl.Paused)
+	_, err := d.SQL.ExecContext(ctx, `INSERT INTO downloads (hash, kind, title, year, name, added_by, added_by_name, state, reason, paused, in_order)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.AddedBy, dl.AddedByName, dl.State, dl.Reason, dl.Paused, dl.InOrder)
 	return err
 }
 
@@ -79,11 +79,6 @@ func (d *DB) listDownloads(ctx context.Context, where string, args ...any) ([]Do
 // ListDownloads is every download, newest first.
 func (d *DB) ListDownloads(ctx context.Context) ([]Download, error) {
 	return d.listDownloads(ctx, "")
-}
-
-// ListDownloadsByState is the downloads in one state, newest first.
-func (d *DB) ListDownloadsByState(ctx context.Context, state string) ([]Download, error) {
-	return d.listDownloads(ctx, "WHERE state = $1", state)
 }
 
 // UpdateDownload saves kind, title, year, name, state, reason, paused and

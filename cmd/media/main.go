@@ -62,9 +62,9 @@ func run() int {
 	tr := &transmission.Client{URL: cfg.TransmissionURL, User: cfg.TransmissionUser, Password: cfg.TransmissionPassword,
 		HTTP: &http.Client{Timeout: 30 * time.Second}}
 
-	linkErr := library.CheckLinkable(cfg.DataDir)
-	if linkErr != nil {
-		log.Printf("media folder: %v", linkErr)
+	linkProblem := recheck(time.Minute, func() error { return library.CheckLinkable(cfg.DataDir) })
+	if err := linkProblem(); err != nil {
+		log.Printf("media folder: %v", err)
 	}
 
 	dl := downloads.New(database, tr, jf, cfg.DataDir)
@@ -89,13 +89,32 @@ func run() int {
 	router, err := handlers.NewWebRouter(handlers.Deps{
 		DB: database, Catalog: jf, Player: jf, Downloads: dl, Library: jf, Watching: w, Upstream: jf,
 		LanDomain: cfg.LanDomain, AuthURL: cfg.AuthURL(), HomeServerURL: cfg.HomeServerURL(),
-		LinkProblem: func() error { return linkErr },
+		LinkProblem: linkProblem,
 	})
 	if err != nil {
 		log.Print(err)
 		return 1
 	}
 	return serve(ctx, cfg, router)
+}
+
+// recheck runs check at most once every interval and answers with its
+// latest result in between, so a fixed media folder stops being reported
+// without a restart (the downloads page asks every few seconds).
+func recheck(every time.Duration, check func() error) func() error {
+	var (
+		mu   sync.Mutex
+		last time.Time
+		err  error
+	)
+	return func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		if last.IsZero() || time.Since(last) >= every {
+			err, last = check(), time.Now()
+		}
+		return err
+	}
 }
 
 // keepSetUp sets Jellyfin up, and again whenever it stops being ready (its
