@@ -32,6 +32,10 @@ type fakeTorrents struct {
 	started   []string
 	seq       []string
 	seqOff    []string
+	startNow  []string
+	portCalls int
+	portOpen  bool
+	portErr   error
 	wantSet   []string // "hash +0,1 -2" per SetWanted call
 	placed    map[string]string
 	nextHash  string
@@ -145,6 +149,23 @@ func (f *fakeTorrents) SetWanted(_ context.Context, hash string, wanted, unwante
 	t.Files = files
 	f.torrents[hash] = t
 	return nil
+}
+
+func (f *fakeTorrents) StartNow(_ context.Context, hash string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.startNow = append(f.startNow, hash)
+	t := f.torrents[hash]
+	t.Queued = false
+	f.torrents[hash] = t
+	return nil
+}
+
+func (f *fakeTorrents) PortOpen(context.Context) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.portCalls++
+	return f.portOpen, f.portErr
 }
 
 func (f *fakeTorrents) set(t transmission.Torrent) {
@@ -983,4 +1004,154 @@ func TestRefileLeavesHandPlacedSubtitle(t *testing.T) {
 	require.NoError(t, e.s.Poll(ctx))
 	assert.Equal(t, "filed", e.get(t, "h1").State)
 	assert.Equal(t, "by hand", e.read(t, "library/Movies/Dune (2021)/Dune (2021).bg.srt"))
+}
+
+func TestListStats(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.5, RateDownload: 10, RateUpload: 1000, Uploaded: 5000,
+		Ratio: 0.5, Peers: 12, PeersSending: 8, Seeders: 45, QueuePos: 3})
+	d := e.get(t, "h1")
+	assert.True(t, d.Live)
+	assert.Equal(t, int64(1000), d.RateUpload)
+	assert.Equal(t, int64(5000), d.Uploaded)
+	assert.Equal(t, 0.5, d.Ratio)
+	assert.Equal(t, 12, d.Peers)
+	assert.Equal(t, 8, d.PeersSending)
+	assert.Equal(t, 45, d.Seeders)
+	assert.True(t, d.InOrder, "in order by default")
+	assert.Equal(t, "", d.Stuck)
+}
+
+func TestStuckReasons(t *testing.T) {
+	for name, c := range map[string]struct {
+		t      transmission.Torrent
+		any    bool // marked any-order first
+		reason string
+	}{
+		"queued":       {t: transmission.Torrent{Queued: true, QueuePos: 2, Peers: 3}, reason: "queued"},
+		"tracker":      {t: transmission.Torrent{TrackerError: "Connection failed", Peers: 3}, reason: "tracker"},
+		"no peers":     {t: transmission.Torrent{Seeders: 45}, reason: "no_peers"},
+		"in order":     {t: transmission.Torrent{Peers: 3, Sequential: true}, reason: "in_order"},
+		"any order":    {t: transmission.Torrent{Peers: 3}, any: true, reason: "not_sending"},
+		"moving":       {t: transmission.Torrent{Peers: 3, RateDownload: 50, Sequential: true}, reason: ""},
+		"sending slow": {t: transmission.Torrent{Peers: 3, PeersSending: 1, Sequential: true}, reason: ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			e.addMovie(t, "h1", "Dune", 2021)
+			c.t.Hash, c.t.PercentDone = "h1", 0.3
+			e.t.set(c.t)
+			if c.any {
+				require.NoError(t, e.s.AnyOrder(context.Background(), "h1"))
+				e.t.set(c.t)
+			}
+			d := e.get(t, "h1")
+			assert.Equal(t, c.reason, d.Stuck)
+			if c.reason == "queued" {
+				assert.Equal(t, 2, d.QueuePos)
+			}
+			if c.reason == "tracker" {
+				assert.Equal(t, "Connection failed", d.TrackerError)
+			}
+		})
+	}
+}
+
+func TestStuckOnlyWhileDownloading(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "p", "Paused", 2021)
+	e.t.set(transmission.Torrent{Hash: "p", PercentDone: 0.3})
+	require.NoError(t, e.s.Pause(ctx, "p"))
+	assert.Equal(t, "", e.get(t, "p").Stuck)
+
+	e.addMovie(t, "f", "Filed", 2021)
+	e.t.set(transmission.Torrent{Hash: "f", PercentDone: 1, Files: []transmission.File{e.file(t, "f", "f/f.mkv")}, DoneDate: e.now})
+	require.NoError(t, e.s.Poll(ctx))
+	require.Equal(t, "filed", e.get(t, "f").State)
+	assert.Equal(t, "", e.get(t, "f").Stuck, "seeding with no peers isn't stuck")
+}
+
+func TestAnyOrder(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Sequential: true})
+	require.NoError(t, e.s.AnyOrder(ctx, "h1"))
+	assert.Equal(t, []string{"h1"}, e.t.seqOff)
+	assert.False(t, e.get(t, "h1").InOrder)
+	assert.ErrorIs(t, e.s.AnyOrder(ctx, "nope"), ErrNotFound)
+}
+
+func TestPollKeepsAnyOrder(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Sequential: true})
+	require.NoError(t, e.s.AnyOrder(ctx, "h1"))
+	require.NoError(t, e.s.Poll(ctx))
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Empty(t, e.t.seq, "the poll leaves it in any order")
+	assert.False(t, e.get(t, "h1").InOrder)
+}
+
+func TestStartNow(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", Queued: true, QueuePos: 2})
+	require.NoError(t, e.s.StartNow(context.Background(), "h1"))
+	assert.Equal(t, []string{"h1"}, e.t.startNow)
+	assert.ErrorIs(t, e.s.StartNow(context.Background(), "nope"), ErrNotFound)
+}
+
+func TestPortTestThrottled(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.s.Port = 51413
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Sequential: true, Peers: 3, PeersSending: 1, RateDownload: 10})
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Equal(t, 0, e.t.portCalls, "nothing stuck without peers")
+
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Sequential: true, Seeders: 45})
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Equal(t, 1, e.t.portCalls)
+	d := e.get(t, "h1")
+	assert.Equal(t, "no_peers", d.Stuck)
+	assert.True(t, d.PortClosed)
+	assert.Equal(t, 51413, d.Port)
+
+	e.now = e.now.Add(time.Minute)
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Equal(t, 1, e.t.portCalls, "at most every 10 minutes")
+	e.now = e.now.Add(10 * time.Minute)
+	e.t.portOpen = true
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Equal(t, 2, e.t.portCalls)
+	assert.False(t, e.get(t, "h1").PortClosed)
+}
+
+func TestPortClosedOnlyOnNoPeers(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "a", "A", 2021)
+	e.addMovie(t, "b", "B", 2021)
+	e.t.set(transmission.Torrent{Hash: "a", PercentDone: 0.3})
+	e.t.set(transmission.Torrent{Hash: "b", PercentDone: 0.3, Peers: 2, Sequential: true})
+	require.NoError(t, e.s.Poll(ctx))
+	assert.True(t, e.get(t, "a").PortClosed)
+	assert.False(t, e.get(t, "b").PortClosed)
+}
+
+func TestPortTestErrorIgnored(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3})
+	e.t.portErr = errors.New("port-test failed")
+	assert.NoError(t, e.s.Poll(ctx), "a failed port test doesn't fail the poll")
+	d := e.get(t, "h1")
+	assert.Equal(t, "no_peers", d.Stuck)
+	assert.False(t, d.PortClosed)
 }

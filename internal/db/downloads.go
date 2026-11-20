@@ -19,13 +19,14 @@ type Download struct {
 	AddedAt              time.Time
 	State, Reason        string
 	Paused               bool // paused in the app
+	InOrder              bool // downloads its pieces in order (new rows: true)
 }
 
-const downloadCols = `hash, kind, title, COALESCE(year, 0), name, added_by, added_by_name, added_at, state, reason, paused`
+const downloadCols = `hash, kind, title, COALESCE(year, 0), name, added_by, added_by_name, added_at, state, reason, paused, in_order`
 
 func scanDownload(row interface{ Scan(...any) error }) (Download, error) {
 	var d Download
-	err := row.Scan(&d.Hash, &d.Kind, &d.Title, &d.Year, &d.Name, &d.AddedBy, &d.AddedByName, &d.AddedAt, &d.State, &d.Reason, &d.Paused)
+	err := row.Scan(&d.Hash, &d.Kind, &d.Title, &d.Year, &d.Name, &d.AddedBy, &d.AddedByName, &d.AddedAt, &d.State, &d.Reason, &d.Paused, &d.InOrder)
 	return d, err
 }
 
@@ -80,10 +81,11 @@ func (d *DB) ListDownloadsByState(ctx context.Context, state string) ([]Download
 	return d.listDownloads(ctx, "WHERE state = $1", state)
 }
 
-// UpdateDownload saves kind, title, year, name, state, reason and paused.
+// UpdateDownload saves kind, title, year, name, state, reason, paused and
+// in_order.
 func (d *DB) UpdateDownload(ctx context.Context, dl Download) error {
 	res, err := d.SQL.ExecContext(ctx, `UPDATE downloads SET kind = $2, title = $3, year = $4, name = $5, state = $6, reason = $7,
-		paused = $8 WHERE hash = $1`, dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.State, dl.Reason, dl.Paused)
+		paused = $8, in_order = $9 WHERE hash = $1`, dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.State, dl.Reason, dl.Paused, dl.InOrder)
 	if err != nil {
 		return err
 	}

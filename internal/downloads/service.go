@@ -45,6 +45,8 @@ type Torrents interface {
 	Stop(ctx context.Context, hash string) error
 	Start(ctx context.Context, hash string) error
 	SetSequential(ctx context.Context, hash string, on bool) error
+	StartNow(ctx context.Context, hash string) error
+	PortOpen(ctx context.Context) (bool, error)
 	SetWanted(ctx context.Context, hash string, wanted, unwanted []int) error
 	Place(ctx context.Context, hash, dir string) error
 }
@@ -86,6 +88,21 @@ type Download struct {
 	SeedingUntil      time.Time
 	SeedingDone       bool
 	Paused            bool // paused in the app, downloading or seeding
+	InOrder           bool // downloads its pieces in order
+
+	// Live stats; zero when Transmission doesn't know the torrent (Live false).
+	Live                         bool
+	RateUpload, Uploaded         int64 // bytes per second, bytes in all
+	Ratio                        float64
+	Peers, PeersSending, Seeders int // Seeders -1 = not known
+	QueuePos                     int // 1-based, while queued
+	TrackerError                 string
+
+	// Why a download isn't moving: "" (it is), "queued", "tracker",
+	// "no_peers", "in_order" or "not_sending".
+	Stuck      string
+	PortClosed bool // with "no_peers": the peer port can't be reached from outside
+	Port       int  // the peer port, for that note
 }
 
 // CanPause is true while it downloads or seeds.
@@ -120,12 +137,19 @@ type Service struct {
 	SeedFor time.Duration    // how long a finished torrent seeds
 	Now     func() time.Time // the clock
 	Log     *log.Logger
+
+	Port      int           // Transmission's peer port, shown when it's closed
+	PortEvery time.Duration // how often the port test may run
+
+	portMu     sync.Mutex
+	portTested time.Time // last port test that answered; zero = none yet
+	portOpen   bool
 }
 
 // New makes the service; seeding lasts 72 hours.
 func New(store Store, t Torrents, lib Library, dataDir string) *Service {
 	return &Service{store: store, t: t, lib: lib, dataDir: dataDir, pending: map[string]bool{},
-		SeedFor: 72 * time.Hour, Now: time.Now, Log: log.Default()}
+		SeedFor: 72 * time.Hour, Now: time.Now, Log: log.Default(), Port: 51413, PortEvery: 10 * time.Minute}
 }
 
 const maxTitleBytes = 150
@@ -219,7 +243,7 @@ func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Downlo
 		return Download{}, false, err
 	}
 	row := db.Download{Hash: hash, Kind: in.Kind, Title: title, Year: in.Year, Name: name,
-		AddedBy: user.ID, AddedByName: user.Name, State: "downloading"}
+		AddedBy: user.ID, AddedByName: user.Name, State: "downloading", InOrder: true}
 	if err := s.store.InsertDownload(ctx, row); err != nil {
 		return Download{}, false, err
 	}
@@ -232,7 +256,8 @@ func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Downlo
 
 func fromRow(r db.Download) Download {
 	return Download{Hash: r.Hash, Kind: r.Kind, Title: r.Title, Year: r.Year, Name: r.Name,
-		AddedByName: r.AddedByName, AddedAt: r.AddedAt, State: r.State, Reason: r.Reason, Paused: r.Paused}
+		AddedByName: r.AddedByName, AddedAt: r.AddedAt, State: r.State, Reason: r.Reason, Paused: r.Paused,
+		InOrder: r.InOrder, Seeders: -1}
 }
 
 // List is every download, newest first, with live progress from
@@ -261,6 +286,14 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 		out[i].Percent = t.PercentDone
 		out[i].RateDownload = t.RateDownload
 		out[i].Size, out[i].Done, out[i].ETA = t.Size, t.Size-t.Left, t.ETA
+		out[i].Live = true
+		out[i].RateUpload, out[i].Uploaded, out[i].Ratio = t.RateUpload, t.Uploaded, t.Ratio
+		out[i].Peers, out[i].PeersSending, out[i].Seeders = t.Peers, t.PeersSending, t.Seeders
+		out[i].QueuePos, out[i].TrackerError = t.QueuePos, t.TrackerError
+		out[i].Stuck = stuckReason(out[i].State, out[i].Paused, t)
+		if out[i].Stuck == "no_peers" {
+			out[i].PortClosed, out[i].Port = s.portClosed(), s.Port
+		}
 		if !t.DoneDate.IsZero() {
 			out[i].SeedingUntil = t.DoneDate.Add(s.SeedFor)
 			// Paused past its seeding time is simply done.
@@ -271,6 +304,52 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 		}
 	}
 	return out, nil
+}
+
+// stuckReason is why a downloading torrent isn't moving, "" when it is
+// (or isn't downloading). See Download.Stuck.
+func stuckReason(state string, paused bool, t transmission.Torrent) string {
+	switch {
+	case state != "downloading" || paused || t.Stopped || t.PercentDone >= 1:
+		return ""
+	case t.Queued:
+		return "queued"
+	case t.RateDownload > 0 || t.PeersSending > 0:
+		return ""
+	case t.TrackerError != "":
+		return "tracker"
+	case t.Peers == 0:
+		return "no_peers"
+	case t.Sequential:
+		return "in_order"
+	}
+	return "not_sending"
+}
+
+// portClosed is true when the last port test said the port is closed.
+func (s *Service) portClosed() bool {
+	s.portMu.Lock()
+	defer s.portMu.Unlock()
+	return !s.portTested.IsZero() && !s.portOpen
+}
+
+// testPort runs Transmission's port test when it's due. A failed test is
+// only logged: the page then just doesn't mention the port.
+func (s *Service) testPort(ctx context.Context) {
+	s.portMu.Lock()
+	due := s.portTested.IsZero() || s.Now().Sub(s.portTested) >= s.PortEvery
+	s.portMu.Unlock()
+	if !due {
+		return
+	}
+	open, err := s.t.PortOpen(ctx)
+	if err != nil {
+		s.Log.Printf("port test: %v", err)
+		return
+	}
+	s.portMu.Lock()
+	s.portTested, s.portOpen = s.Now(), open
+	s.portMu.Unlock()
 }
 
 // selectFiles marks t's wanted files (library.Wanted) and unmarks the
@@ -411,6 +490,7 @@ func (s *Service) Poll(ctx context.Context) error {
 		return fmt.Errorf("transmission: %w", err)
 	}
 	var errs []error
+	noPeers := false
 	for _, r := range rows {
 		t, ok := live[r.Hash]
 		if r.State == "downloading" {
@@ -424,7 +504,10 @@ func (s *Service) Poll(ctx context.Context) error {
 			}
 			delete(s.pending, r.Hash)
 		}
-		if ok && t.PercentDone < 1 && !t.Sequential {
+		if ok && stuckReason(r.State, r.Paused, t) == "no_peers" {
+			noPeers = true
+		}
+		if ok && t.PercentDone < 1 && !t.Sequential && r.InOrder {
 			if err := s.t.SetSequential(ctx, r.Hash, true); err != nil {
 				errs = append(errs, fmt.Errorf("sequential %s: %w", r.Title, err))
 			}
@@ -435,7 +518,36 @@ func (s *Service) Poll(ctx context.Context) error {
 			}
 		}
 	}
+	if noPeers {
+		s.testPort(ctx)
+	}
 	return errors.Join(errs...)
+}
+
+// StartNow starts a queued download straight away.
+func (s *Service) StartNow(ctx context.Context, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.row(ctx, hash); err != nil {
+		return err
+	}
+	return s.t.StartNow(ctx, hash)
+}
+
+// AnyOrder lets a download fetch its pieces in any order, which helps when
+// in-order downloading stalls; it can't be watched until it's finished.
+func (s *Service) AnyOrder(ctx context.Context, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.row(ctx, hash)
+	if err != nil {
+		return err
+	}
+	if err := s.t.SetSequential(ctx, hash, false); err != nil {
+		return err
+	}
+	r.InOrder = false
+	return s.store.UpdateDownload(ctx, r)
 }
 
 // check moves one downloading row on: failed if Transmission lost it,
