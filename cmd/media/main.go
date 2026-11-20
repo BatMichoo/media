@@ -23,6 +23,7 @@ import (
 	"github.com/BatMichoo/media/internal/handlers"
 	"github.com/BatMichoo/media/internal/jellyfin"
 	"github.com/BatMichoo/media/internal/library"
+	"github.com/BatMichoo/media/internal/supervise"
 	"github.com/BatMichoo/media/internal/transmission"
 	"github.com/BatMichoo/media/internal/watching"
 )
@@ -78,9 +79,15 @@ func run() int {
 		workers.Add(1)
 		go func() { defer workers.Done(); f() }()
 	}
-	goWorker(func() { keepSetUp(ctx, jf, filepath.Join(cfg.DataDir, "library")) })
+	loop := supervise.New()
 	goWorker(func() {
-		retry(ctx, "transmission settings", func(ctx context.Context) error {
+		libraryRoot := filepath.Join(cfg.DataDir, "library")
+		loop.KeepReady(ctx, "jellyfin setup", func(ctx context.Context) error {
+			return jf.Setup(ctx, libraryRoot)
+		}, jf.Ready)
+	})
+	goWorker(func() {
+		loop.Retry(ctx, "transmission settings", func(ctx context.Context) error {
 			return tr.ConfigureSession(ctx, filepath.Join(cfg.DataDir, "downloads"))
 		})
 	})
@@ -114,47 +121,6 @@ func recheck(every time.Duration, check func() error) func() error {
 			err, last = check(), time.Now()
 		}
 		return err
-	}
-}
-
-// keepSetUp sets Jellyfin up, and again whenever it stops being ready (its
-// login failed: its settings were wiped or the account changed).
-func keepSetUp(ctx context.Context, jf *jellyfin.Client, libraryRoot string) {
-	for {
-		retry(ctx, "jellyfin setup", func(ctx context.Context) error { return jf.Setup(ctx, libraryRoot) })
-		for jf.Ready() {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(30 * time.Second):
-			}
-		}
-		if ctx.Err() != nil {
-			return
-		}
-		log.Print("jellyfin: login lost, setting up again")
-	}
-}
-
-// retry runs f until it succeeds (every 10 seconds), logging the first
-// failure and then every minute or so.
-func retry(ctx context.Context, what string, f func(context.Context) error) {
-	for attempt := 0; ; attempt++ {
-		c, cancel := context.WithTimeout(ctx, time.Minute)
-		err := f(c)
-		cancel()
-		if err == nil {
-			log.Printf("%s: done", what)
-			return
-		}
-		if attempt%6 == 0 {
-			log.Printf("%s: %v (trying again)", what, err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(10 * time.Second):
-		}
 	}
 }
 
