@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/BatMichoo/media/internal/db"
@@ -60,4 +61,36 @@ func TestReasonKeyMigration(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, w, [3]any{got.Reason, got.ReasonKey, got.ReasonN}, hash)
 	}
+}
+
+func TestInTx(t *testing.T) {
+	d := dbtest.New(t)
+	ctx := context.Background()
+	row := db.Download{Hash: "a", Kind: model.KindMovie, Title: "X", Year: 2000,
+		AddedBy: "6f1c2a3b-0000-4000-8000-000000000001", AddedByName: "x", State: model.StateDownloading}
+	require.NoError(t, d.InsertDownload(ctx, row))
+
+	boom := errors.New("boom")
+	err := d.InTx(ctx, func(ctx context.Context) error {
+		require.NoError(t, d.AddLinks(ctx, "a", []string{"library/x", "library/y"}))
+		row.State = model.StateFiled
+		require.NoError(t, d.UpdateDownload(ctx, row))
+		return boom
+	})
+	require.ErrorIs(t, err, boom)
+	links, err := d.Links(ctx, "a")
+	require.NoError(t, err)
+	assert.Empty(t, links, "rolled back")
+	got, err := d.GetDownload(ctx, "a")
+	require.NoError(t, err)
+	assert.Equal(t, model.StateDownloading, got.State, "rolled back")
+
+	require.NoError(t, d.InTx(ctx, func(ctx context.Context) error {
+		return d.InTx(ctx, func(ctx context.Context) error { // joins the outer one
+			return d.AddLinks(ctx, "a", []string{"library/x", "library/x", "library/y"})
+		})
+	}))
+	links, err = d.Links(ctx, "a")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"library/x", "library/y"}, links)
 }

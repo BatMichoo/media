@@ -34,7 +34,7 @@ func (d *DB) SaveProgress(ctx context.Context, userID string, p Progress) error 
 	if p.SeriesID != "" {
 		series = p.SeriesID
 	}
-	_, err := d.SQL.ExecContext(ctx, `INSERT INTO progress
+	_, err := d.q(ctx).ExecContext(ctx, `INSERT INTO progress
 		(user_id, item_id, series_id, part, position_seconds, duration_seconds, watched_seconds, finished, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (user_id, item_id) DO UPDATE SET series_id = EXCLUDED.series_id, part = EXCLUDED.part,
@@ -47,7 +47,7 @@ func (d *DB) SaveProgress(ctx context.Context, userID string, p Progress) error 
 
 // GetProgress is a person's progress in an item; ok is false if none.
 func (d *DB) GetProgress(ctx context.Context, userID, itemID string) (Progress, bool, error) {
-	p, err := scanProgress(d.SQL.QueryRowContext(ctx,
+	p, err := scanProgress(d.q(ctx).QueryRowContext(ctx,
 		`SELECT `+progressCols+` FROM progress WHERE user_id = $1 AND item_id = $2`, userID, itemID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Progress{}, false, nil
@@ -56,7 +56,7 @@ func (d *DB) GetProgress(ctx context.Context, userID, itemID string) (Progress, 
 }
 
 func (d *DB) listProgress(ctx context.Context, q string, args ...any) ([]Progress, error) {
-	rows, err := d.SQL.QueryContext(ctx, q, args...)
+	rows, err := d.q(ctx).QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ type Prefs struct{ SubtitleLang, AudioLang string }
 // GetPrefs is a person's preferences (empty if none saved).
 func (d *DB) GetPrefs(ctx context.Context, userID string) (Prefs, error) {
 	var p Prefs
-	err := d.SQL.QueryRowContext(ctx, `SELECT subtitle_lang, audio_lang FROM preferences WHERE user_id = $1`, userID).
+	err := d.q(ctx).QueryRowContext(ctx, `SELECT subtitle_lang, audio_lang FROM preferences WHERE user_id = $1`, userID).
 		Scan(&p.SubtitleLang, &p.AudioLang)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Prefs{}, nil
@@ -100,7 +100,7 @@ func (d *DB) GetPrefs(ctx context.Context, userID string) (Prefs, error) {
 
 // SetPrefs saves the preferences that aren't nil, keeping the others.
 func (d *DB) SetPrefs(ctx context.Context, userID string, subtitleLang, audioLang *string) error {
-	_, err := d.SQL.ExecContext(ctx, `INSERT INTO preferences (user_id, subtitle_lang, audio_lang)
+	_, err := d.q(ctx).ExecContext(ctx, `INSERT INTO preferences (user_id, subtitle_lang, audio_lang)
 		VALUES ($1, COALESCE($2, ''), COALESCE($3, ''))
 		ON CONFLICT (user_id) DO UPDATE SET
 			subtitle_lang = COALESCE($2, preferences.subtitle_lang),

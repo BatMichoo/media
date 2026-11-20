@@ -58,6 +58,9 @@ type Library interface {
 
 // Store is where downloads and their links are recorded.
 type Store interface {
+	// InTx runs f in one transaction: the store calls made with the ctx
+	// f gets are saved together or not at all.
+	InTx(ctx context.Context, f func(ctx context.Context) error) error
 	InsertDownload(ctx context.Context, d db.Download) error
 	GetDownload(ctx context.Context, hash string) (db.Download, error)
 	ListDownloads(ctx context.Context) ([]db.Download, error)
@@ -687,9 +690,6 @@ func (s *Service) file(ctx context.Context, r db.Download, t transmission.Torren
 	}
 	links, unplaced := library.PlaceSubtitles(r.Kind, r.Hash, links, librarySubs(subs))
 	made, linkErr := library.Apply(s.dataDir, links)
-	if err := s.store.AddLinks(ctx, r.Hash, made); err != nil {
-		return err
-	}
 	switch {
 	case linkErr != nil:
 		r.State = model.StateFailed
@@ -705,7 +705,14 @@ func (s *Service) file(ctx context.Context, r db.Download, t transmission.Torren
 	if linkErr == nil && unplaced > 0 {
 		setKey(&r, ReasonSubsUnplaced, unplaced)
 	}
-	if err := s.store.UpdateDownload(ctx, r); err != nil {
+	// The links and the state are saved together: links recorded for a
+	// download still shown as downloading would be filed again.
+	if err := s.store.InTx(ctx, func(ctx context.Context) error {
+		if err := s.store.AddLinks(ctx, r.Hash, made); err != nil {
+			return err
+		}
+		return s.store.UpdateDownload(ctx, r)
+	}); err != nil {
 		return err
 	}
 	if len(made) > 0 {
@@ -788,14 +795,20 @@ func (s *Service) Edit(ctx context.Context, hash string, kind model.Kind, title 
 		if err := library.Undo(s.dataDir, links); err != nil {
 			return err
 		}
-		if err := s.store.DeleteLinks(ctx, hash); err != nil {
-			return err
-		}
 		r.State = model.StateDownloading
 		setText(&r, "")
 	}
 	r.Kind, r.Title, r.Year = kind, clean, year
-	if err := s.store.UpdateDownload(ctx, r); err != nil {
+	// The links (undone above) are forgotten with the new details saved,
+	// so a failure never leaves a filed download without its links.
+	if err := s.store.InTx(ctx, func(ctx context.Context) error {
+		if refile {
+			if err := s.store.DeleteLinks(ctx, hash); err != nil {
+				return err
+			}
+		}
+		return s.store.UpdateDownload(ctx, r)
+	}); err != nil {
 		return err
 	}
 	if !refile {

@@ -4,9 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/BatMichoo/media/internal/model"
 	"time"
 
-	"github.com/BatMichoo/media/internal/model"
+	"github.com/lib/pq"
 )
 
 // ErrNotFound means there's no such row.
@@ -46,7 +47,7 @@ func nullYear(y int) any {
 
 // InsertDownload records a new download.
 func (d *DB) InsertDownload(ctx context.Context, dl Download) error {
-	_, err := d.SQL.ExecContext(ctx, `INSERT INTO downloads (hash, kind, title, year, name, added_by, added_by_name, state, reason, reason_key, reason_n, paused, in_order)
+	_, err := d.q(ctx).ExecContext(ctx, `INSERT INTO downloads (hash, kind, title, year, name, added_by, added_by_name, state, reason, reason_key, reason_n, paused, in_order)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.AddedBy, dl.AddedByName, dl.State, dl.Reason, dl.ReasonKey, dl.ReasonN, dl.Paused, dl.InOrder)
 	return err
@@ -54,7 +55,7 @@ func (d *DB) InsertDownload(ctx context.Context, dl Download) error {
 
 // GetDownload is one download; ErrNotFound if there's none.
 func (d *DB) GetDownload(ctx context.Context, hash string) (Download, error) {
-	dl, err := scanDownload(d.SQL.QueryRowContext(ctx, `SELECT `+downloadCols+` FROM downloads WHERE hash = $1`, hash))
+	dl, err := scanDownload(d.q(ctx).QueryRowContext(ctx, `SELECT `+downloadCols+` FROM downloads WHERE hash = $1`, hash))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Download{}, ErrNotFound
 	}
@@ -62,7 +63,7 @@ func (d *DB) GetDownload(ctx context.Context, hash string) (Download, error) {
 }
 
 func (d *DB) listDownloads(ctx context.Context, where string, args ...any) ([]Download, error) {
-	rows, err := d.SQL.QueryContext(ctx, `SELECT `+downloadCols+` FROM downloads `+where+` ORDER BY added_at DESC, hash`, args...)
+	rows, err := d.q(ctx).QueryContext(ctx, `SELECT `+downloadCols+` FROM downloads `+where+` ORDER BY added_at DESC, hash`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +87,7 @@ func (d *DB) ListDownloads(ctx context.Context) ([]Download, error) {
 // UpdateDownload saves kind, title, year, name, state, the reason, paused
 // and in_order.
 func (d *DB) UpdateDownload(ctx context.Context, dl Download) error {
-	res, err := d.SQL.ExecContext(ctx, `UPDATE downloads SET kind = $2, title = $3, year = $4, name = $5, state = $6, reason = $7,
+	res, err := d.q(ctx).ExecContext(ctx, `UPDATE downloads SET kind = $2, title = $3, year = $4, name = $5, state = $6, reason = $7,
 		reason_key = $8, reason_n = $9, paused = $10, in_order = $11 WHERE hash = $1`,
 		dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.State, dl.Reason, dl.ReasonKey, dl.ReasonN, dl.Paused, dl.InOrder)
 	if err != nil {
@@ -100,24 +101,24 @@ func (d *DB) UpdateDownload(ctx context.Context, dl Download) error {
 
 // DeleteDownload removes a download and its recorded links.
 func (d *DB) DeleteDownload(ctx context.Context, hash string) error {
-	_, err := d.SQL.ExecContext(ctx, `DELETE FROM downloads WHERE hash = $1`, hash)
+	_, err := d.q(ctx).ExecContext(ctx, `DELETE FROM downloads WHERE hash = $1`, hash)
 	return err
 }
 
-// AddLinks records links made for a download (repeats are ignored).
+// AddLinks records links made for a download, all or none (repeats are
+// ignored).
 func (d *DB) AddLinks(ctx context.Context, hash string, paths []string) error {
-	for _, p := range paths {
-		if _, err := d.SQL.ExecContext(ctx, `INSERT INTO download_links (hash, path) VALUES ($1, $2)
-			ON CONFLICT DO NOTHING`, hash, p); err != nil {
-			return err
-		}
+	if len(paths) == 0 {
+		return nil
 	}
-	return nil
+	_, err := d.q(ctx).ExecContext(ctx, `INSERT INTO download_links (hash, path)
+		SELECT $1, p FROM unnest($2::text[]) AS p ON CONFLICT DO NOTHING`, hash, pq.Array(paths))
+	return err
 }
 
 // Links is every link recorded for a download.
 func (d *DB) Links(ctx context.Context, hash string) ([]string, error) {
-	rows, err := d.SQL.QueryContext(ctx, `SELECT path FROM download_links WHERE hash = $1 ORDER BY path`, hash)
+	rows, err := d.q(ctx).QueryContext(ctx, `SELECT path FROM download_links WHERE hash = $1 ORDER BY path`, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -135,6 +136,6 @@ func (d *DB) Links(ctx context.Context, hash string) ([]string, error) {
 
 // DeleteLinks forgets a download's links.
 func (d *DB) DeleteLinks(ctx context.Context, hash string) error {
-	_, err := d.SQL.ExecContext(ctx, `DELETE FROM download_links WHERE hash = $1`, hash)
+	_, err := d.q(ctx).ExecContext(ctx, `DELETE FROM download_links WHERE hash = $1`, hash)
 	return err
 }

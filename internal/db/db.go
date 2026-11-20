@@ -71,5 +71,40 @@ func (d *DB) Ping(ctx context.Context) error {
 	return d.SQL.PingContext(ctx)
 }
 
+// querier is what the queries run on: the pool, or a transaction.
+type querier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+type txKey struct{}
+
+// q is the transaction InTx put in ctx, else the pool.
+func (d *DB) q(ctx context.Context) querier {
+	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
+		return tx
+	}
+	return d.SQL
+}
+
+// InTx runs f in one transaction: every query made with the ctx it gets
+// is part of it, and it's committed only when f returns nil. Inside
+// another InTx it joins that transaction.
+func (d *DB) InTx(ctx context.Context, f func(ctx context.Context) error) error {
+	if _, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
+		return f(ctx)
+	}
+	tx, err := d.SQL.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := f(context.WithValue(ctx, txKey{}, tx)); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
 // Close closes the pool.
 func (d *DB) Close() error { return d.SQL.Close() }
