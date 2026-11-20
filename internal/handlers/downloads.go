@@ -345,6 +345,11 @@ func uploads(c *gin.Context, field, lang string) ([]downloads.Upload, error) {
 		if fh.Filename == "" && fh.Size == 0 {
 			continue // the field left empty
 		}
+		// Counted as it goes, so a request full of zips stops at the
+		// limit rather than unpacking them all first.
+		if len(out) >= downloads.MaxUploads {
+			return nil, &downloads.InvalidError{Key: "error.sub_count"}
+		}
 		if fh.Size > subtitles.MaxSize {
 			return nil, &downloads.InvalidError{Key: "error.sub_size", Arg: fh.Filename}
 		}
@@ -361,7 +366,7 @@ func uploads(c *gin.Context, field, lang string) ([]downloads.Upload, error) {
 			out = append(out, downloads.Upload{Name: fh.Filename, Lang: lang, Data: data})
 			continue
 		}
-		entries, err := subtitles.Unzip(data)
+		entries, err := subtitles.UnzipAtMost(data, downloads.MaxUploads-len(out))
 		if err != nil {
 			return nil, zipError(fh.Filename, err)
 		}

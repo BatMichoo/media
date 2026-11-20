@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding/charmap"
 )
 
 // MaxEntries is the most subtitle files taken from one zip.
@@ -39,19 +42,23 @@ type Entry struct {
 // the zip's order. Folders, macOS's __MACOSX copies, hidden files and
 // other files are left out. Each file is read through a limit, so one that
 // unpacks to more than MaxSize is refused whatever its header says.
-func Unzip(data []byte) ([]Entry, error) {
+func Unzip(data []byte) ([]Entry, error) { return UnzipAtMost(data, MaxEntries) }
+
+// UnzipAtMost is Unzip taking at most max subtitle files (ErrCount past
+// that), so several zips in one upload share one allowance.
+func UnzipAtMost(data []byte, max int) ([]Entry, error) {
 	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, ErrZip
 	}
 	var out []Entry
 	for _, f := range r.File {
-		name := path.Base(strings.ReplaceAll(f.Name, "\\", "/"))
+		name := path.Base(strings.ReplaceAll(entryName(f.Name), "\\", "/"))
 		if f.FileInfo().IsDir() || strings.HasPrefix(name, ".") || !Exts[strings.ToLower(path.Ext(name))] ||
 			strings.Contains("/"+f.Name+"/", "/__MACOSX/") {
 			continue
 		}
-		if len(out) == MaxEntries {
+		if len(out) >= max {
 			return nil, ErrCount
 		}
 		rc, err := f.Open()
@@ -74,6 +81,24 @@ func Unzip(data []byte) ([]Entry, error) {
 	return out, nil
 }
 
+// entryName is a zip entry's name as UTF-8. Windows tools store names in
+// the OEM code page (cp866 for Cyrillic) without saying so; a name that
+// isn't valid UTF-8 is read as that.
+func entryName(name string) string {
+	if utf8.ValidString(name) {
+		return name
+	}
+	if s, err := charmap.CodePage866.NewDecoder().String(name); err == nil {
+		return s
+	}
+	return strings.ToValidUTF8(name, "_")
+}
+
+// notLabels are words Jellyfin reads as a language or a flag where the
+// label goes in <video>.<label>.<lang><ext>, so they can't be labels.
+var notLabels = map[string]bool{"bg": true, "bul": true, "bgr": true, "en": true, "eng": true,
+	"default": true, "forced": true, "foreign": true, "sdh": true, "cc": true, "hi": true}
+
 // maxLabel is the longest label, in characters.
 const maxLabel = 40
 
@@ -83,7 +108,9 @@ const maxLabel = 40
 // x264-SPARKS" and "WEB-DL DDP5 1 H 264-FLUX". Characters a file name
 // can't hold are removed and a label is at most 40 characters. When a
 // label comes out empty or two are the same, they're numbered "1", "2", …
-// instead. One name (or none) needs no label: "".
+// instead, and also when a label is a word Jellyfin would read as a
+// language or a flag ("bg", "forced"). One name (or none) needs no
+// label: "".
 func Labels(names []string) []string {
 	out := make([]string, len(names))
 	if len(names) < 2 {
@@ -104,7 +131,7 @@ func Labels(names []string) []string {
 		}
 		out[i] = cleanLabel(strings.Join(w[lead:end], " "))
 		key := strings.ToLower(out[i])
-		if out[i] == "" || seen[key] {
+		if out[i] == "" || seen[key] || notLabels[key] {
 			numbered = true
 		}
 		seen[key] = true
@@ -118,7 +145,8 @@ func Labels(names []string) []string {
 }
 
 // common is how many words all lists share (case-insensitively) at the
-// start, or at the end with fromEnd, never all of the shortest list.
+// start, or at the end with fromEnd (it can be all of the shortest list;
+// that one's label is then empty and Labels numbers them).
 func common(words [][]string, fromEnd bool) int {
 	shortest := len(words[0])
 	for _, w := range words {

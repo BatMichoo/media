@@ -3,6 +3,7 @@ package handlers
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"mime/multipart"
 	"net/url"
 	"strings"
@@ -109,4 +110,28 @@ func TestUploadAcceptsZip(t *testing.T) {
 	a.cat.items[m.ID] = m
 	_, doc = a.get(t, "/movies/"+m.ID)
 	assert.Contains(t, doc.Find(`form[action="/subtitles/`+m.ID+`"] input[name=file]`).AttrOr("accept", ""), ".zip")
+}
+
+func TestManyZipsStopAtTheLimit(t *testing.T) {
+	// Each zip is checked against what's left of the 30, so a request
+	// full of zips is refused before unpacking them all.
+	a := newApp(t)
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	for k, v := range map[string]string{"magnet": "magnet:?xt=1", "kind": "movie", "title": "Dune", "year": "2021", "subtitle_lang": "bg"} {
+		require.NoError(t, mw.WriteField(k, v))
+	}
+	var files []string
+	for i := 0; i < 20; i++ {
+		files = append(files, fmt.Sprintf("s%02d.srt", i), "x")
+	}
+	for i := 0; i < 2; i++ {
+		fw, err := mw.CreateFormFile("subtitles", fmt.Sprintf("z%d.zip", i))
+		require.NoError(t, err)
+		_, _ = fw.Write(zipOf(t, files...))
+	}
+	require.NoError(t, mw.Close())
+	w, _ := a.postMultipart(t, "/add", &b, mw.FormDataContentType())
+	assert.Equal(t, 422, w.Code)
+	assert.Empty(t, a.dl.added)
 }

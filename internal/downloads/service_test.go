@@ -1386,3 +1386,18 @@ func TestRefileKeepsLabels(t *testing.T) {
 	assert.Equal(t, "web", e.read(t, dir+"Dune (2021).WEB.bg.srt"))
 	assert.False(t, e.exists("library/Movies/Dune (2020)"))
 }
+
+func TestLibraryUploadKeepsTorrentsLabelledSubtitle(t *testing.T) {
+	// A torrent's own forced track isn't an earlier upload: it stays.
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.2021.mkv"), e.file(t, "h1", "D/Dune.2021.forced.bg.srt"))
+	require.NoError(t, e.s.Poll(ctx))
+	dir := "library/Movies/Dune (2021)/"
+	require.True(t, e.exists(dir+"Dune (2021).forced.bg.srt"))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, dir+"Dune (2021).mkv", "movie", []Upload{{Name: "full.srt", Lang: "bg", Data: []byte("full")}}))
+	assert.True(t, e.exists(dir+"Dune (2021).forced.bg.srt"))
+	assert.Contains(t, e.linkRows(t, "h1"), dir+"Dune (2021).forced.bg.srt")
+	assert.Equal(t, "full", e.read(t, dir+"Dune (2021).bg.srt"))
+}

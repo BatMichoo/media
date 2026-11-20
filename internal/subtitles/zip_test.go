@@ -87,3 +87,31 @@ func TestLabels(t *testing.T) {
 		assert.Equal(t, c.want, Labels(c.names), "%v", c.names)
 	}
 }
+
+func TestUnzipOEMNames(t *testing.T) {
+	// Windows tools store names in the OEM code page (cp866 for
+	// Cyrillic) without the UTF-8 flag; valid UTF-8 names stay as they are.
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	for _, h := range []*zip.FileHeader{
+		{Name: "\x84\xee\xad\xa0.srt", NonUTF8: true}, // "Дюна" in cp866
+		{Name: "Дюна.WEB.srt"},
+	} {
+		f, err := w.CreateHeader(h)
+		require.NoError(t, err)
+		_, _ = f.Write([]byte("x"))
+	}
+	require.NoError(t, w.Close())
+	got, err := Unzip(buf.Bytes())
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "Дюна.srt", got[0].Name)
+	assert.Equal(t, "Дюна.WEB.srt", got[1].Name)
+}
+
+func TestLabelsAvoidLanguageAndFlagWords(t *testing.T) {
+	// Jellyfin would read these as a language or a flag, not a title.
+	assert.Equal(t, []string{"1", "2"}, Labels([]string{"Dune.bg.srt", "Dune.en.srt"}))
+	assert.Equal(t, []string{"1", "2"}, Labels([]string{"Dune.forced.srt", "Dune.full.srt"}))
+	assert.Equal(t, []string{"BluRay", "WEB"}, Labels([]string{"Dune.BluRay.srt", "Dune.WEB.srt"}))
+}

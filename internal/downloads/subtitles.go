@@ -86,14 +86,14 @@ func (s *Service) keepAll(ctx context.Context, d db.Download, ps []prepared) err
 		data[i] = p.data
 	}
 	labelRows(d.Kind, rows)
-	rows, err := s.keepBatch(ctx, d.Kind, d.Hash, rows, data)
+	rows, replaced, err := s.keepBatch(ctx, d.Kind, d.Hash, rows, data)
 	if err != nil {
 		return err
 	}
 	if d.State != model.StateFiled {
 		return nil
 	}
-	unplaced, err := s.placeNow(ctx, d, rows)
+	unplaced, err := s.placeNow(ctx, d, rows, replaced)
 	if err != nil || unplaced == 0 {
 		return err
 	}
@@ -137,9 +137,9 @@ func labelRows(kind model.Kind, rows []db.Subtitle) {
 
 // placeNow links kept uploads next to a filed download's videos (found
 // among the links it already made), replacing what's there for those
-// videos and languages: earlier uploads' links and the plain
-// <video>.<lang> files.
-func (s *Service) placeNow(ctx context.Context, d db.Download, rows []db.Subtitle) (int, error) {
+// videos and languages: the links of the uploads they replaced (by new
+// row ID, from keepBatch) and the plain <video>.<lang> files.
+func (s *Service) placeNow(ctx context.Context, d db.Download, rows []db.Subtitle, replaced map[string][]db.Subtitle) (int, error) {
 	have, err := s.store.Links(ctx, d.Hash)
 	if err != nil {
 		return 0, err
@@ -154,21 +154,30 @@ func (s *Service) placeNow(ctx context.Context, d db.Download, rows []db.Subtitl
 		byFile[library.SubtitleFile(d.Hash, ls)] = ls
 	}
 	out, unplaced := library.PlaceSubtitles(d.Kind, d.Hash, links, librarySubs(rows))
+	// One clearing per video and language, of every upload replaced by
+	// one placed there.
 	var add []library.Link
-	cleared := map[string]bool{}
+	var groups []string
+	stems, langs := map[string]string{}, map[string]string{}
+	olds := map[string][]db.Subtitle{}
 	for _, l := range out {
 		sub, ok := byFile[l.From]
 		if !ok {
 			continue // a link the download made earlier
 		}
 		stem := videoStem(l.To, sub)
-		if k := stem + "\x00" + sub.Lang; !cleared[k] {
-			cleared[k] = true
-			if err := s.clearGroup(ctx, d.Hash, stem, sub.Lang, have); err != nil {
-				return 0, err
-			}
+		k := stem + "\x00" + sub.Lang
+		if _, seen := stems[k]; !seen {
+			groups = append(groups, k)
+			stems[k], langs[k] = stem, sub.Lang
 		}
+		olds[k] = append(olds[k], replaced[sub.ID]...)
 		add = append(add, l)
+	}
+	for _, k := range groups {
+		if err := s.clearGroup(ctx, d.Hash, stems[k], langs[k], olds[k], have); err != nil {
+			return 0, err
+		}
 	}
 	made, linkErr := library.Apply(s.dataDir, add)
 	if err := s.store.AddLinks(ctx, d.Hash, made); err != nil {
@@ -195,10 +204,11 @@ func videoStem(dst string, sub library.Subtitle) string {
 
 // clearGroup makes room for uploads for one video (stem: its library path
 // without extension) and language: it removes <stem>.<lang> in every
-// subtitle format, and, of the links the download (hash, "" for none)
-// recorded in have, the labelled <stem>.<label>.<lang> ones, forgetting
-// the links it removes.
-func (s *Service) clearGroup(ctx context.Context, hash, stem, lang string, have []string) error {
+// subtitle format, and the labelled links of the earlier uploads they
+// replace (olds) among the links the download (hash, "" for none)
+// recorded in have, forgetting the links it removes. Anything else, such
+// as the torrent's own forced track, stays.
+func (s *Service) clearGroup(ctx context.Context, hash, stem, lang string, olds []db.Subtitle, have []string) error {
 	remove := func(p string) error {
 		if err := os.Remove(filepath.Join(s.dataDir, filepath.FromSlash(p))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
@@ -213,14 +223,18 @@ func (s *Service) clearGroup(ctx context.Context, hash, stem, lang string, have 
 			return err
 		}
 	}
+	recorded := map[string]bool{}
 	for _, p := range have {
-		ext := path.Ext(p)
-		rest, ok := strings.CutPrefix(strings.TrimSuffix(p, "."+lang+ext), stem+".")
-		if !subtitles.Exts[ext] || !ok || rest == "" || !strings.HasSuffix(p, "."+lang+ext) {
-			continue
+		recorded[p] = true
+	}
+	for _, old := range olds {
+		if old.Label == "" || old.Lang != lang {
+			continue // a plain one went above
 		}
-		if err := remove(p); err != nil {
-			return err
+		if p := stem + "." + old.Label + "." + old.Lang + old.Ext; recorded[p] {
+			if err := remove(p); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -228,38 +242,41 @@ func (s *Service) clearGroup(ctx context.Context, hash, stem, lang string, have 
 
 // keepBatch writes uploads' files under subtitles/<hash>/ and records
 // them, then drops the earlier uploads for the same videos and languages
-// (never one another). The new ones are saved first, so a failure keeps
-// the earlier uploads.
-func (s *Service) keepBatch(ctx context.Context, kind model.Kind, hash string, rows []db.Subtitle, data [][]byte) ([]db.Subtitle, error) {
+// (never one another); replaced lists those by the ID of the new row that
+// replaced them. The new ones are saved first, so a failure keeps the
+// earlier uploads.
+func (s *Service) keepBatch(ctx context.Context, kind model.Kind, hash string, rows []db.Subtitle, data [][]byte) (kept []db.Subtitle, replaced map[string][]db.Subtitle, err error) {
 	have, err := s.store.Subtitles(ctx, hash)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for i := range rows {
 		rows[i].Hash, rows[i].ID = hash, newID()
 		file := filepath.Join(s.dataDir, filepath.FromSlash(library.SubtitleFile(hash, librarySub(rows[i]))))
 		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := os.WriteFile(file, data[i], 0o644); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := s.store.AddSubtitle(ctx, rows[i]); err != nil {
 			os.Remove(file)
-			return nil, err
+			return nil, nil, err
 		}
 	}
+	replaced = map[string][]db.Subtitle{}
 	for _, old := range have {
 		for _, r := range rows {
 			if old.Lang == r.Lang && sameVideo(kind, old, r) {
 				if err := s.forget(ctx, old); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
+				replaced[r.ID] = append(replaced[r.ID], old)
 				break
 			}
 		}
 	}
-	return rows, nil
+	return rows, replaced, nil
 }
 
 // forget drops a kept upload: its record and its file (a library link to
@@ -336,7 +353,7 @@ func (s *Service) LibrarySubtitle(ctx context.Context, video string, kind model.
 	hash, err := s.store.LinkOwner(ctx, video)
 	if errors.Is(err, db.ErrNotFound) {
 		for _, l := range langs {
-			if err := s.clearGroup(ctx, "", stem, l, nil); err != nil {
+			if err := s.clearGroup(ctx, "", stem, l, nil, nil); err != nil {
 				return err
 			}
 		}
@@ -360,8 +377,13 @@ func (s *Service) LibrarySubtitle(ctx context.Context, video string, kind model.
 		rows[i] = db.Subtitle{Lang: p.up.Lang, Ext: p.ext, Name: name, Video: pinned, Label: labels[i]}
 		data[i] = p.data
 	}
-	if rows, err = s.keepBatch(ctx, kind, hash, rows, data); err != nil {
+	rows, replaced, err := s.keepBatch(ctx, kind, hash, rows, data)
+	if err != nil {
 		return err
+	}
+	var olds []db.Subtitle
+	for _, r := range rows {
+		olds = append(olds, replaced[r.ID]...)
 	}
 	// Uploads win over whatever is there (earlier uploads, the torrent's
 	// own subtitle).
@@ -370,7 +392,7 @@ func (s *Service) LibrarySubtitle(ctx context.Context, video string, kind model.
 		return err
 	}
 	for _, l := range langs {
-		if err := s.clearGroup(ctx, hash, stem, l, have); err != nil {
+		if err := s.clearGroup(ctx, hash, stem, l, olds, have); err != nil {
 			return err
 		}
 	}
