@@ -20,23 +20,6 @@ import (
 	"github.com/BatMichoo/media/internal/transmission"
 )
 
-// ErrInvalid means the input was refused; the error is an *InvalidError.
-var ErrInvalid = errors.New("invalid input")
-
-// ErrNotFound means there's no such download.
-var ErrNotFound = errors.New("no such download")
-
-// InvalidError says what was wrong, as a message key the pages translate.
-type InvalidError struct {
-	Key string
-	Arg string // filled into the message (e.g. a file name), or ""
-}
-
-func (e *InvalidError) Error() string        { return "invalid input: " + e.Key }
-func (e *InvalidError) Is(target error) bool { return target == ErrInvalid }
-
-func invalid(key string) error { return &InvalidError{Key: key} }
-
 // Torrents is Transmission.
 type Torrents interface {
 	Add(ctx context.Context, magnet string, torrentFile []byte, downloadDir string) (hash, name string, duplicate bool, err error)
@@ -61,100 +44,35 @@ type Store interface {
 	// InTx runs f in one transaction: the store calls made with the ctx
 	// f gets are saved together or not at all.
 	InTx(ctx context.Context, f func(ctx context.Context) error) error
+	DownloadStore
+	LinkStore
+	SubtitleStore
+}
+
+// DownloadStore is the downloads' own rows.
+type DownloadStore interface {
 	InsertDownload(ctx context.Context, d db.Download) error
 	GetDownload(ctx context.Context, hash string) (db.Download, error)
 	ListDownloads(ctx context.Context) ([]db.Download, error)
 	UpdateDownload(ctx context.Context, d db.Download) error
 	DeleteDownload(ctx context.Context, hash string) error
+}
+
+// LinkStore is the library links each download made, so they can be
+// undone exactly.
+type LinkStore interface {
 	AddLinks(ctx context.Context, hash string, paths []string) error
 	Links(ctx context.Context, hash string) ([]string, error)
 	DeleteLinks(ctx context.Context, hash string) error
 	DeleteLink(ctx context.Context, hash, path string) error
 	LinkOwner(ctx context.Context, path string) (string, error)
+}
+
+// SubtitleStore is the subtitles uploaded for downloads.
+type SubtitleStore interface {
 	AddSubtitle(ctx context.Context, s db.Subtitle) error
 	Subtitles(ctx context.Context, hash string) ([]db.Subtitle, error)
 	DeleteSubtitle(ctx context.Context, hash, id string) error
-}
-
-// Download is a download as the pages show it.
-type Download struct {
-	Hash              string
-	Kind              model.Kind
-	Title             string
-	Year              int
-	Name, AddedByName string
-	AddedAt           time.Time
-	State             model.State
-	Reason            string        // text from Transmission or the file system, or ""
-	ReasonKey         string        // or a message key (see the Reason* constants)
-	ReasonN           int           // the count for ReasonKey's message, 0 = none
-	Percent           float64       // 0..1
-	RateDownload      int64         // bytes per second
-	Size, Done        int64         // bytes in all and so far (Size 0 = not known yet)
-	ETA               time.Duration // time left; 0 = not known
-	SeedingUntil      time.Time
-	SeedingDone       bool
-	Paused            bool // paused in the app, downloading or seeding
-	InOrder           bool // downloads its pieces in order
-
-	// Live stats; zero when Transmission doesn't know the torrent (Live false).
-	Live                         bool
-	RateUpload, Uploaded         int64 // bytes per second, bytes in all
-	Ratio                        float64
-	Peers, PeersSending, Seeders int // Seeders -1 = not known
-	QueuePos                     int // 1-based, while queued
-	TrackerError                 string
-
-	Stuck      Stuck // why it isn't moving; "" when it is
-	PortClosed bool  // with StuckNoPeers: the peer port can't be reached from outside
-	Port       int   // the peer port, for that note
-}
-
-// The reasons the app gives itself, as message keys (Download.ReasonKey).
-const (
-	ReasonRemoved      = "reason.removed"            // Transmission no longer has it
-	ReasonInLibrary    = "reason.already_in_library" // every file was there already
-	ReasonNoVideo      = "reason.no_video"           // nothing to file
-	ReasonSubsUnplaced = "reason.subs_unplaced"      // ReasonN subtitles matched no video
-)
-
-// setText sets r's reason to text from elsewhere ("" for none).
-func setText(r *db.Download, text string) { r.Reason, r.ReasonKey, r.ReasonN = text, "", 0 }
-
-// setKey sets r's reason to one of the app's own, with its count.
-func setKey(r *db.Download, key string, n int) { r.Reason, r.ReasonKey, r.ReasonN = "", key, n }
-
-// Stuck is why a download isn't moving.
-type Stuck string
-
-const (
-	StuckQueued     Stuck = "queued"      // waiting its turn in Transmission's queue
-	StuckTracker    Stuck = "tracker"     // the tracker reports an error
-	StuckNoPeers    Stuck = "no_peers"    // nobody to download from
-	StuckInOrder    Stuck = "in_order"    // peers, none sending, pieces asked for in order
-	StuckNotSending Stuck = "not_sending" // peers, none sending
-)
-
-// Active is true while Transmission downloads or seeds it (not paused).
-func (d Download) Active() bool {
-	if d.Paused {
-		return false
-	}
-	return d.State == model.StateDownloading ||
-		(d.State == model.StateFiled && !d.SeedingUntil.IsZero() && !d.SeedingDone)
-}
-
-// CanPause is true while it downloads or seeds.
-func (d Download) CanPause() bool { return d.Active() }
-
-// AddInput is what the Add page sends: a magnet link or a torrent file.
-type AddInput struct {
-	Magnet    string
-	File      []byte
-	Kind      model.Kind
-	Title     string
-	Year      int      // 0 = none (series only)
-	Subtitles []Upload // kept with the download, linked in when it's filed
 }
 
 // Service is the downloads logic. Poll, Add, Edit and Remove take turns,
@@ -176,21 +94,14 @@ type Service struct {
 	PortEvery  time.Duration // how often the port test may run
 	StallAfter time.Duration // how long a download must be stalled to show as stuck
 
-	// Guarded by liveMu, not mu: List and the port test don't wait for a
-	// poll round or an edit.
-	liveMu       sync.Mutex
-	portTried    time.Time // last port test attempt; zero = none yet
-	portAnswered bool      // the last attempt answered
-	portOpen     bool
-	port         int                  // Transmission's peer port, from that test
-	stalledSince map[string]time.Time // hash -> when it last stopped moving
+	live liveState // stalls and the port test (health.go)
 }
 
 // New makes the service; seeding lasts 72 hours.
 func New(store Store, t Torrents, lib Library, dataDir string) *Service {
 	return &Service{store: store, t: t, lib: lib, dataDir: dataDir, pending: map[string]bool{},
 		SeedFor: 72 * time.Hour, Now: time.Now, Log: log.Default(),
-		PortEvery: 10 * time.Minute, StallAfter: time.Minute, stalledSince: map[string]time.Time{}}
+		PortEvery: 10 * time.Minute, StallAfter: time.Minute, live: liveState{stalledSince: map[string]time.Time{}}}
 }
 
 const maxTitleBytes = 150
@@ -295,12 +206,6 @@ func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Downlo
 	return fromRow(row), false, nil
 }
 
-func fromRow(r db.Download) Download {
-	return Download{Hash: r.Hash, Kind: r.Kind, Title: r.Title, Year: r.Year, Name: r.Name,
-		AddedByName: r.AddedByName, AddedAt: r.AddedAt, State: r.State, Reason: r.Reason, ReasonKey: r.ReasonKey, ReasonN: r.ReasonN, Paused: r.Paused,
-		InOrder: r.InOrder, Seeders: -1}
-}
-
 // Get is one download as recorded, without Transmission's live progress;
 // ErrNotFound if there's none.
 func (s *Service) Get(ctx context.Context, hash string) (Download, error) {
@@ -357,147 +262,6 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 	return out, nil
 }
 
-// queueRank is t's place among the queued torrents in live (1 = next),
-// 0 when it isn't queued. Transmission's own position counts every
-// torrent, queued or not.
-func queueRank(live map[string]transmission.Torrent, t transmission.Torrent) int {
-	if !t.Queued {
-		return 0
-	}
-	rank := 1
-	for _, o := range live {
-		if o.Queued && o.QueuePos < t.QueuePos {
-			rank++
-		}
-	}
-	return rank
-}
-
-// stuckReason is why a downloading torrent isn't moving, "" when it is
-// (or isn't downloading). See Download.Stuck.
-func stuckReason(state model.State, paused bool, t transmission.Torrent) Stuck {
-	switch {
-	case state != model.StateDownloading || paused || t.Stopped || t.Checking || t.PercentDone >= 1:
-		return ""
-	case t.Queued:
-		return StuckQueued
-	case t.RateDownload > 0 || t.PeersSending > 0:
-		return ""
-	case t.TrackerError != "":
-		return StuckTracker
-	case t.Peers == 0:
-		return StuckNoPeers
-	case t.Sequential:
-		return StuckInOrder
-	}
-	return StuckNotSending
-}
-
-// stuck is reason once the download has been stalled for StallAfter, ""
-// before that: a just-started torrent often waits a moment for peers.
-func (s *Service) stuck(hash string, reason Stuck) Stuck {
-	s.liveMu.Lock()
-	defer s.liveMu.Unlock()
-	if reason == "" {
-		delete(s.stalledSince, hash)
-		return ""
-	}
-	since, ok := s.stalledSince[hash]
-	if !ok {
-		since = s.Now()
-		s.stalledSince[hash] = since
-	}
-	if s.Now().Sub(since) < s.StallAfter {
-		return ""
-	}
-	return reason
-}
-
-// portClosed is true, with the port, when the last port test said the
-// peer port is closed.
-func (s *Service) portClosed() (bool, int) {
-	s.liveMu.Lock()
-	defer s.liveMu.Unlock()
-	return s.portAnswered && !s.portOpen, s.port
-}
-
-// testPort runs Transmission's port test when it's due. A failed test is
-// only logged: the page then just doesn't mention the port.
-func (s *Service) testPort(ctx context.Context) {
-	// The attempt counts, answered or not, so a port test that keeps
-	// failing still runs only every PortEvery.
-	s.liveMu.Lock()
-	due := s.portTried.IsZero() || s.Now().Sub(s.portTried) >= s.PortEvery
-	if due {
-		s.portTried = s.Now()
-	}
-	s.liveMu.Unlock()
-	if !due {
-		return
-	}
-	open, port, err := s.t.PortOpen(ctx)
-	if err != nil {
-		s.Log.Printf("port test: %v", err)
-		return
-	}
-	s.liveMu.Lock()
-	s.portAnswered, s.portOpen, s.port = true, open, port
-	s.liveMu.Unlock()
-}
-
-// selectFiles marks t's wanted files (library.Wanted) and unmarks the
-// rest, changing only what differs.
-func (s *Service) selectFiles(ctx context.Context, t transmission.Torrent) error {
-	var want, skip []int
-	for i, f := range t.Files {
-		switch w := library.Wanted(f); {
-		case w && !f.Wanted:
-			want = append(want, i)
-		case !w && f.Wanted:
-			skip = append(skip, i)
-		}
-	}
-	return s.t.SetWanted(ctx, t.Hash, want, skip)
-}
-
-// CheckPending picks the files of magnet links whose file list has
-// arrived since they were added.
-func (s *Service) CheckPending(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.pending) == 0 {
-		return nil
-	}
-	hashes := make([]string, 0, len(s.pending))
-	for h := range s.pending {
-		hashes = append(hashes, h)
-	}
-	live, err := s.t.Get(ctx, hashes)
-	if err != nil {
-		return fmt.Errorf("transmission: %w", err)
-	}
-	var errs []error
-	for _, h := range hashes {
-		t, ok := live[h]
-		switch {
-		case !ok:
-			delete(s.pending, h)
-		case len(t.Files) > 0:
-			if err := s.selectFiles(ctx, t); err != nil {
-				errs = append(errs, fmt.Errorf("pick files %s: %w", h, err))
-				continue
-			}
-			delete(s.pending, h)
-		}
-	}
-	return errors.Join(errs...)
-}
-
-// seedingOver is true once a finished torrent has seeded long enough.
-func (s *Service) seedingOver(t transmission.Torrent) bool {
-	return !t.DoneDate.IsZero() && s.Now().Sub(t.DoneDate) > s.SeedFor
-}
-
 // Pause stops a download, or a finished one's seeding, until Resume.
 func (s *Service) Pause(ctx context.Context, hash string) error {
 	s.mu.Lock()
@@ -535,105 +299,6 @@ func (s *Service) Resume(ctx context.Context, hash string) error {
 	return s.store.UpdateDownload(ctx, r)
 }
 
-// roundTimeout bounds one background round. A round isn't cut short
-// when ctx ends (shutdown): filing makes links on disk and then records
-// them, and stopping between the two would leave links nobody can undo.
-const roundTimeout = 20 * time.Second
-
-// Run polls every interval until ctx ends, and checks new magnet links
-// for their file list every couple of seconds. A round under way when
-// ctx ends is finished first.
-func (s *Service) Run(ctx context.Context, every time.Duration) {
-	t := time.NewTicker(every)
-	defer t.Stop()
-	fast := time.NewTicker(2 * time.Second)
-	defer fast.Stop()
-	round := func(f func(context.Context) error) {
-		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), roundTimeout)
-		defer cancel()
-		if err := f(rctx); err != nil {
-			s.Log.Printf("downloads: %v", err)
-		}
-	}
-	for {
-		round(s.Poll)
-		for waiting := true; waiting; {
-			select {
-			case <-ctx.Done():
-				return
-			case <-fast.C:
-				round(s.CheckPending)
-			case <-t.C:
-				waiting = false
-			}
-		}
-	}
-}
-
-// Poll is one round: file what finished, mark what vanished, stop
-// seeding what has seeded long enough, and make every unfinished torrent
-// download its pieces in order (one added before, or as a duplicate).
-func (s *Service) Poll(ctx context.Context) error {
-	noPeers, err := s.poll(ctx)
-	if noPeers {
-		// Outside mu: the test can take a while (Transmission asks an
-		// outside site), and nothing else should wait for it.
-		s.testPort(ctx)
-	}
-	return err
-}
-
-// poll is Poll's round, under mu. noPeers is true when some download is
-// stuck without peers, so the port test is worth running.
-func (s *Service) poll(ctx context.Context) (noPeers bool, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	rows, err := s.store.ListDownloads(ctx)
-	if err != nil {
-		return false, err
-	}
-	if len(rows) == 0 {
-		return false, nil
-	}
-	hashes := make([]string, 0, len(rows))
-	for _, r := range rows {
-		hashes = append(hashes, r.Hash)
-	}
-	live, err := s.t.Get(ctx, hashes)
-	if err != nil {
-		return false, fmt.Errorf("transmission: %w", err)
-	}
-	var errs []error
-	for _, r := range rows {
-		t, ok := live[r.Hash]
-		if r.State == model.StateDownloading {
-			if err := s.check(ctx, r, t, ok); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		if ok && r.State == model.StateDownloading && len(t.Files) > 0 && t.PercentDone < 1 {
-			if err := s.selectFiles(ctx, t); err != nil {
-				errs = append(errs, fmt.Errorf("pick files %s: %w", r.Title, err))
-			}
-			delete(s.pending, r.Hash)
-		}
-		if ok && s.stuck(r.Hash, stuckReason(r.State, r.Paused, t)) == StuckNoPeers {
-			noPeers = true
-		}
-		if ok && t.PercentDone < 1 && !t.Sequential && r.InOrder {
-			if err := s.t.SetSequential(ctx, r.Hash, true); err != nil {
-				errs = append(errs, fmt.Errorf("sequential %s: %w", r.Title, err))
-			}
-		}
-		if ok && !t.Stopped && s.seedingOver(t) {
-			if err := s.t.Stop(ctx, r.Hash); err != nil {
-				errs = append(errs, fmt.Errorf("stop seeding %s: %w", r.Title, err))
-			}
-		}
-	}
-	return noPeers, errors.Join(errs...)
-}
-
 // StartNow starts a queued download straight away.
 func (s *Service) StartNow(ctx context.Context, hash string) error {
 	s.mu.Lock()
@@ -660,83 +325,6 @@ func (s *Service) AnyOrder(ctx context.Context, hash string) error {
 		return err
 	}
 	return s.t.SetSequential(ctx, hash, false)
-}
-
-// check moves one downloading row on: failed if Transmission lost it,
-// the error shown if Transmission reports one, filed when finished.
-func (s *Service) check(ctx context.Context, r db.Download, t transmission.Torrent, known bool) error {
-	switch {
-	case !known:
-		r.State = model.StateFailed
-		setKey(&r, ReasonRemoved, 0)
-		return s.store.UpdateDownload(ctx, r)
-	case t.LocalError || t.PercentDone < 1:
-		// A tracker warning shows but doesn't stop a finished download
-		// from being filed; a problem with the data does.
-		if r.Reason == t.Error && r.ReasonKey == "" {
-			return nil
-		}
-		setText(&r, t.Error)
-		return s.store.UpdateDownload(ctx, r)
-	}
-	return s.file(ctx, r, t)
-}
-
-// file links a finished torrent into the library and records the links.
-func (s *Service) file(ctx context.Context, r db.Download, t transmission.Torrent) error {
-	links, err := library.Plan(r.Kind, r.Title, r.Year, r.Hash, t.Files)
-	if err != nil {
-		r.State = model.StateFailed
-		if errors.Is(err, library.ErrNoVideo) {
-			setKey(&r, ReasonNoVideo, 0)
-		} else {
-			setText(&r, err.Error())
-		}
-		return s.store.UpdateDownload(ctx, r)
-	}
-	subs, err := s.store.Subtitles(ctx, r.Hash)
-	if err != nil {
-		return err
-	}
-	links, unplaced := library.PlaceSubtitles(r.Kind, r.Hash, links, librarySubs(subs))
-	made, linkErr := library.Apply(s.dataDir, links)
-	switch {
-	case linkErr != nil:
-		r.State = model.StateFailed
-		setText(&r, linkErr.Error())
-	case len(made) == 0:
-		// Every file was there already (another copy of the same thing).
-		r.State = model.StateFiled
-		setKey(&r, ReasonInLibrary, 0)
-	default:
-		r.State = model.StateFiled
-		setText(&r, "")
-	}
-	if linkErr == nil && unplaced > 0 {
-		setKey(&r, ReasonSubsUnplaced, unplaced)
-	}
-	// The links and the state are saved together: links recorded for a
-	// download still shown as downloading would be filed again.
-	if err := s.store.InTx(ctx, func(ctx context.Context) error {
-		if err := s.store.AddLinks(ctx, r.Hash, made); err != nil {
-			return err
-		}
-		return s.store.UpdateDownload(ctx, r)
-	}); err != nil {
-		return err
-	}
-	if len(made) > 0 {
-		s.refresh(ctx)
-	}
-	return nil
-}
-
-// refresh asks Jellyfin to rescan. If it's down, Jellyfin finds the files
-// on its next scan anyway, so this only logs.
-func (s *Service) refresh(ctx context.Context) {
-	if err := s.lib.Refresh(ctx); err != nil {
-		s.Log.Printf("downloads: library rescan: %v", err)
-	}
 }
 
 func (s *Service) row(ctx context.Context, hash string) (db.Download, error) {
