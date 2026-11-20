@@ -46,7 +46,7 @@ type Torrents interface {
 	Start(ctx context.Context, hash string) error
 	SetSequential(ctx context.Context, hash string, on bool) error
 	StartNow(ctx context.Context, hash string) error
-	PortOpen(ctx context.Context) (bool, error)
+	PortOpen(ctx context.Context) (open bool, port int, err error)
 	SetWanted(ctx context.Context, hash string, wanted, unwanted []int) error
 	Place(ctx context.Context, hash, dir string) error
 }
@@ -138,18 +138,18 @@ type Service struct {
 	Now     func() time.Time // the clock
 	Log     *log.Logger
 
-	Port      int           // Transmission's peer port, shown when it's closed
 	PortEvery time.Duration // how often the port test may run
 
 	portMu     sync.Mutex
 	portTested time.Time // last port test that answered; zero = none yet
 	portOpen   bool
+	port       int // Transmission's peer port, from that test
 }
 
 // New makes the service; seeding lasts 72 hours.
 func New(store Store, t Torrents, lib Library, dataDir string) *Service {
 	return &Service{store: store, t: t, lib: lib, dataDir: dataDir, pending: map[string]bool{},
-		SeedFor: 72 * time.Hour, Now: time.Now, Log: log.Default(), Port: 51413, PortEvery: 10 * time.Minute}
+		SeedFor: 72 * time.Hour, Now: time.Now, Log: log.Default(), PortEvery: 10 * time.Minute}
 }
 
 const maxTitleBytes = 150
@@ -292,7 +292,7 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 		out[i].QueuePos, out[i].TrackerError = t.QueuePos, t.TrackerError
 		out[i].Stuck = stuckReason(out[i].State, out[i].Paused, t)
 		if out[i].Stuck == "no_peers" {
-			out[i].PortClosed, out[i].Port = s.portClosed(), s.Port
+			out[i].PortClosed, out[i].Port = s.portClosed()
 		}
 		if !t.DoneDate.IsZero() {
 			out[i].SeedingUntil = t.DoneDate.Add(s.SeedFor)
@@ -326,11 +326,12 @@ func stuckReason(state string, paused bool, t transmission.Torrent) string {
 	return "not_sending"
 }
 
-// portClosed is true when the last port test said the port is closed.
-func (s *Service) portClosed() bool {
+// portClosed is true, with the port, when the last port test said the
+// peer port is closed.
+func (s *Service) portClosed() (bool, int) {
 	s.portMu.Lock()
 	defer s.portMu.Unlock()
-	return !s.portTested.IsZero() && !s.portOpen
+	return !s.portTested.IsZero() && !s.portOpen, s.port
 }
 
 // testPort runs Transmission's port test when it's due. A failed test is
@@ -342,13 +343,13 @@ func (s *Service) testPort(ctx context.Context) {
 	if !due {
 		return
 	}
-	open, err := s.t.PortOpen(ctx)
+	open, port, err := s.t.PortOpen(ctx)
 	if err != nil {
 		s.Log.Printf("port test: %v", err)
 		return
 	}
 	s.portMu.Lock()
-	s.portTested, s.portOpen = s.Now(), open
+	s.portTested, s.portOpen, s.port = s.Now(), open, port
 	s.portMu.Unlock()
 }
 

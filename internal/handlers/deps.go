@@ -34,6 +34,8 @@ type Downloads interface {
 	Edit(ctx context.Context, hash, kind, title string, year int) error
 	Pause(ctx context.Context, hash string) error
 	Resume(ctx context.Context, hash string) error
+	StartNow(ctx context.Context, hash string) error
+	AnyOrder(ctx context.Context, hash string) error
 	LibrarySubtitle(ctx context.Context, video, kind string, up downloads.Upload) error
 }
 

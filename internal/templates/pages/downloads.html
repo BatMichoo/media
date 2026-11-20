@@ -36,6 +36,21 @@
         </div>
       </div>
       {{ end }}
+      {{ if .ShowStats }}
+      {{ if .Stuck }}
+      <div class="download-stats stuck" role="status">
+        <p>{{ .StuckText }}</p>
+        {{ if eq .Stuck "queued" }}
+        <button type="button" class="btn-secondary start-now" hx-post="/downloads/{{ .Hash }}/start-now" hx-target="#downloads-list" hx-swap="outerHTML">{{ t .Lang "start_now" }}</button>
+        {{ else if eq .Stuck "in_order" }}
+        <button type="button" class="btn-secondary any-order" hx-post="/downloads/{{ .Hash }}/any-order" hx-target="#downloads-list" hx-swap="outerHTML">{{ t .Lang "any_order" }}</button>
+        <small class="any-order-note">{{ t .Lang "any_order.note" }}</small>
+        {{ end }}
+      </div>
+      {{ else }}
+      <p class="download-stats"><span>{{ .UpText }}</span> · <span>{{ .PeersText }}</span></p>
+      {{ end }}
+      {{ end }}
       {{ if .Reason }}<p class="reason">{{ reason .Lang .Reason }}</p>{{ end }}
       <div class="download-foot">
         <div class="download-meta">

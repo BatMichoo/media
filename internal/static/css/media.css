@@ -177,6 +177,15 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .progress-pct { color: var(--text); font-size: 1rem; }
 
 .reason { color: var(--danger); font-size: 0.9rem; }
+.download-stats { margin: 0; font-size: 0.85rem; color: var(--text-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Each half wraps as a whole on a phone. */
+.download-stats > span { display: inline-block; }
+.download-stats.stuck { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem;
+  color: color-mix(in srgb, var(--warning) 60%, var(--text));
+  padding: 0.5rem 0.75rem; border-radius: calc(var(--radius) / 2); background: color-mix(in oklch, var(--warning) 12%, transparent); }
+.download-stats.stuck p { margin: 0; flex: 1 1 14rem; min-width: 0; }
+.download-stats.stuck .btn-secondary { margin: 0; padding: 0.3rem 1rem; border-radius: 999px; }
+.any-order-note { flex-basis: 100%; color: var(--text-muted); }
 .download-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
 .download-meta { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; font-size: 0.85rem; color: var(--text-muted); }
 .download-actions { display: flex; gap: 0.5rem; margin-left: auto; }

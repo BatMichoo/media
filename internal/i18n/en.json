@@ -102,5 +102,17 @@
   "error.title_long": "That title is too long for a folder name; shorten it.",
   "pause": "Pause",
   "resume": "Resume",
-  "state.paused": "Paused"
+  "state.paused": "Paused",
+  "downloads.up": "↑ %s · %s up · ratio %.2f",
+  "downloads.peers": "%d peers, %d sending",
+  "downloads.peers_of": "%d of %d peers, %d sending",
+  "stuck.queued": "Queued (#%d): Transmission downloads only a few at a time",
+  "stuck.tracker": "Can't reach the tracker: %s",
+  "stuck.no_peers": "No peers connected",
+  "stuck.no_peers_seeders": "No peers connected (the tracker sees %d seeders)",
+  "stuck.port_closed": "Port %d is closed, so only seeders that accept incoming connections can reach you",
+  "stuck.not_sending": "%d peers connected, but none sending",
+  "start_now": "Start now",
+  "any_order": "Download in any order",
+  "any_order.note": "It can't be watched until it finishes."
 }

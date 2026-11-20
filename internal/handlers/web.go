@@ -65,6 +65,8 @@ func NewWebRouter(d Deps) (*gin.Engine, error) {
 	g.POST("/downloads/:hash/remove", h.postRemove)
 	g.POST("/downloads/:hash/pause", h.postPause)
 	g.POST("/downloads/:hash/resume", h.postResume)
+	g.POST("/downloads/:hash/start-now", h.postStartNow)
+	g.POST("/downloads/:hash/any-order", h.postAnyOrder)
 	g.POST("/lang", h.postLang)
 	g.POST("/subtitles/:id", h.postSubtitles)
 	h.registerPlayer(g)
@@ -80,19 +82,22 @@ var funcs = template.FuncMap{
 	// add1 is n+1 (1-based numbers from a range over a count).
 	"add1": func(n int) int { return n + 1 },
 	// rate is bytes per second in words.
-	"rate": func(b int64) string {
-		switch {
-		case b >= 1_000_000:
-			return fmt.Sprintf("%.1f MB/s", float64(b)/1_000_000)
-		case b >= 1_000:
-			return fmt.Sprintf("%d kB/s", b/1_000)
-		}
-		return fmt.Sprintf("%d B/s", b)
-	},
+	"rate":         rateWords,
 	"size":         sizeWords,
 	"timeLeft":     timeLeft,
 	"when":         func(t time.Time) string { return t.Local().Format("2 Jan 15:04") },
 	"assetVersion": func() string { return staticVersion },
+}
+
+// rateWords is bytes per second in words.
+func rateWords(b int64) string {
+	switch {
+	case b >= 1_000_000:
+		return fmt.Sprintf("%.1f MB/s", float64(b)/1_000_000)
+	case b >= 1_000:
+		return fmt.Sprintf("%d kB/s", b/1_000)
+	}
+	return fmt.Sprintf("%d B/s", b)
 }
 
 // staticVersion changes whenever one of the app's own files does, so

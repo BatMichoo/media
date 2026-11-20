@@ -161,11 +161,11 @@ func (f *fakeTorrents) StartNow(_ context.Context, hash string) error {
 	return nil
 }
 
-func (f *fakeTorrents) PortOpen(context.Context) (bool, error) {
+func (f *fakeTorrents) PortOpen(context.Context) (bool, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.portCalls++
-	return f.portOpen, f.portErr
+	return f.portOpen, 51413, f.portErr
 }
 
 func (f *fakeTorrents) set(t transmission.Torrent) {
@@ -1108,7 +1108,6 @@ func TestStartNow(t *testing.T) {
 func TestPortTestThrottled(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	e.s.Port = 51413
 	e.addMovie(t, "h1", "Dune", 2021)
 	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Sequential: true, Peers: 3, PeersSending: 1, RateDownload: 10})
 	require.NoError(t, e.s.Poll(ctx))

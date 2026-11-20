@@ -114,6 +114,12 @@ func (f *fakeDownloads) Pause(_ context.Context, hash string) error {
 func (f *fakeDownloads) Resume(_ context.Context, hash string) error {
 	return f.pauseCall("resume", hash)
 }
+func (f *fakeDownloads) StartNow(_ context.Context, hash string) error {
+	return f.pauseCall("start-now", hash)
+}
+func (f *fakeDownloads) AnyOrder(_ context.Context, hash string) error {
+	return f.pauseCall("any-order", hash)
+}
 func (f *fakeDownloads) pauseCall(what, hash string) error {
 	for _, d := range f.list {
 		if d.Hash == hash {

@@ -193,16 +193,22 @@ func (c *Client) SetSequential(ctx context.Context, hash string, on bool) error 
 	return c.call(ctx, "torrent-set", map[string]any{"ids": []string{hash}, "sequential_download": on}, nil)
 }
 
-// PortOpen asks Transmission whether its peer port can be reached from
+// PortOpen is Transmission's peer port and whether it can be reached from
 // the internet (Transmission checks with its own port-test site).
-func (c *Client) PortOpen(ctx context.Context) (bool, error) {
+func (c *Client) PortOpen(ctx context.Context) (open bool, port int, err error) {
+	var session struct {
+		Port int `json:"peer-port"`
+	}
+	if err := c.call(ctx, "session-get", map[string]any{"fields": []string{"peer-port"}}, &session); err != nil {
+		return false, 0, err
+	}
 	var out struct {
 		Open bool `json:"port-is-open"`
 	}
 	if err := c.call(ctx, "port-test", map[string]any{}, &out); err != nil {
-		return false, err
+		return false, session.Port, err
 	}
-	return out.Open, nil
+	return out.Open, session.Port, nil
 }
 
 // Place gives a just-added (paused) torrent its folder and starts it.

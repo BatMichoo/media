@@ -122,6 +122,51 @@ func (d downloadRow) Label() string {
 	return d.Title
 }
 
+// ShowStats is true while Transmission is downloading or seeding it.
+func (d downloadRow) ShowStats() bool {
+	if !d.Live || d.Paused {
+		return false
+	}
+	return d.State == "downloading" || (d.State == "filed" && !d.SeedingUntil.IsZero() && !d.SeedingDone)
+}
+
+// UpText is "↑ 410 kB/s · 1.3 GB up · ratio 0.26".
+func (d downloadRow) UpText() string {
+	return fmt.Sprintf(i18n.T(d.Lang, "downloads.up"), rateWords(d.RateUpload), sizeWords(d.Uploaded), d.Ratio)
+}
+
+// PeersText is "12 of 45 peers, 8 sending" ("12 peers, 8 sending" when no
+// tracker knows the seeders).
+func (d downloadRow) PeersText() string {
+	if d.Seeders >= 0 {
+		return fmt.Sprintf(i18n.T(d.Lang, "downloads.peers_of"), d.Peers, d.Seeders, d.PeersSending)
+	}
+	return fmt.Sprintf(i18n.T(d.Lang, "downloads.peers"), d.Peers, d.PeersSending)
+}
+
+// StuckText says why a download isn't moving (see downloads.Download.Stuck).
+func (d downloadRow) StuckText() string {
+	l := d.Lang
+	switch d.Stuck {
+	case "queued":
+		return fmt.Sprintf(i18n.T(l, "stuck.queued"), d.QueuePos)
+	case "tracker":
+		return fmt.Sprintf(i18n.T(l, "stuck.tracker"), d.TrackerError)
+	case "no_peers":
+		text := i18n.T(l, "stuck.no_peers")
+		if d.Seeders >= 0 {
+			text = fmt.Sprintf(i18n.T(l, "stuck.no_peers_seeders"), d.Seeders)
+		}
+		if d.PortClosed && d.Port > 0 {
+			text += ". " + fmt.Sprintf(i18n.T(l, "stuck.port_closed"), d.Port)
+		}
+		return text
+	case "in_order", "not_sending":
+		return fmt.Sprintf(i18n.T(l, "stuck.not_sending"), d.Peers)
+	}
+	return ""
+}
+
 type downloadsView struct {
 	Lang        string
 	Rows        []downloadRow
@@ -259,7 +304,8 @@ func (h *web) postRemove(c *gin.Context) {
 	h.listWithToast(c, "toast.removed")
 }
 
-// pauseOrResume runs Pause or Resume and answers with the refreshed list.
+// pauseOrResume runs Pause, Resume, StartNow or AnyOrder and answers with
+// the refreshed list.
 func (h *web) pauseOrResume(c *gin.Context, do func(ctx context.Context, hash string) error) {
 	err := do(c.Request.Context(), c.Param("hash"))
 	if errors.Is(err, downloads.ErrNotFound) {
@@ -268,14 +314,16 @@ func (h *web) pauseOrResume(c *gin.Context, do func(ctx context.Context, hash st
 	}
 	v := h.downloadsData(c)
 	if err != nil {
-		log.Printf("pause/resume: %v", err)
+		log.Printf("%s: %v", c.FullPath(), err)
 		v.Toast = &theme.Toast{Kind: theme.ToastError, Title: i18n.T(v.Lang, "error.generic"), Lang: v.Lang}
 	}
 	h.fragment(c, http.StatusOK, "media/downloads-list", v)
 }
 
-func (h *web) postPause(c *gin.Context)  { h.pauseOrResume(c, h.d.Downloads.Pause) }
-func (h *web) postResume(c *gin.Context) { h.pauseOrResume(c, h.d.Downloads.Resume) }
+func (h *web) postPause(c *gin.Context)    { h.pauseOrResume(c, h.d.Downloads.Pause) }
+func (h *web) postResume(c *gin.Context)   { h.pauseOrResume(c, h.d.Downloads.Resume) }
+func (h *web) postStartNow(c *gin.Context) { h.pauseOrResume(c, h.d.Downloads.StartNow) }
+func (h *web) postAnyOrder(c *gin.Context) { h.pauseOrResume(c, h.d.Downloads.AnyOrder) }
 
 // uploads reads the subtitle files sent in a form field, all in one
 // language; the downloads service checks them.

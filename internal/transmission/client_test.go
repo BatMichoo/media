@@ -345,10 +345,17 @@ func TestSetSequentialOff(t *testing.T) {
 }
 
 func TestPortOpen(t *testing.T) {
-	f := &fake{reply: func(call) map[string]any { return ok(map[string]any{"port-is-open": true}) }}
+	f := &fake{reply: func(c call) map[string]any {
+		if c.Method == "session-get" {
+			return ok(map[string]any{"peer-port": 51413})
+		}
+		return ok(map[string]any{"port-is-open": true})
+	}}
 	_, c := f.server(t)
-	open, err := c.PortOpen(context.Background())
+	open, port, err := c.PortOpen(context.Background())
 	require.NoError(t, err)
 	assert.True(t, open)
-	assert.Equal(t, "port-test", f.calls[0].Method)
+	assert.Equal(t, 51413, port)
+	assert.Equal(t, "session-get", f.calls[0].Method)
+	assert.Equal(t, "port-test", f.calls[1].Method)
 }
