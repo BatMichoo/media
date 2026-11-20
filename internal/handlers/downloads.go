@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/BatMichoo/media/internal/model"
 	"io"
 	"log"
 	"math"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
+
+	"github.com/BatMichoo/media/internal/model"
 
 	"github.com/BatMichoo/media/internal/downloads"
 	"github.com/BatMichoo/media/internal/i18n"
@@ -332,7 +334,8 @@ func (h *web) postStartNow(c *gin.Context) { h.pauseOrResume(c, h.d.Downloads.St
 func (h *web) postAnyOrder(c *gin.Context) { h.pauseOrResume(c, h.d.Downloads.AnyOrder) }
 
 // uploads reads the subtitle files sent in a form field, all in one
-// language; the downloads service checks them.
+// language; the downloads service checks them. A .zip stands for the
+// subtitle files in it (subtitles.Unzip).
 func uploads(c *gin.Context, field, lang string) ([]downloads.Upload, error) {
 	if c.Request.MultipartForm == nil {
 		return nil, nil
@@ -354,9 +357,33 @@ func uploads(c *gin.Context, field, lang string) ([]downloads.Upload, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, downloads.Upload{Name: fh.Filename, Lang: lang, Data: data})
+		if !strings.EqualFold(path.Ext(fh.Filename), ".zip") {
+			out = append(out, downloads.Upload{Name: fh.Filename, Lang: lang, Data: data})
+			continue
+		}
+		entries, err := subtitles.Unzip(data)
+		if err != nil {
+			return nil, zipError(fh.Filename, err)
+		}
+		for _, e := range entries {
+			out = append(out, downloads.Upload{Name: e.Name, Lang: lang, Data: e.Data})
+		}
 	}
 	return out, nil
+}
+
+// zipError is the message for a zip (named zip) that can't be used.
+func zipError(zip string, err error) error {
+	var entry *subtitles.EntryError
+	switch {
+	case errors.As(err, &entry) && errors.Is(err, subtitles.ErrSize):
+		return &downloads.InvalidError{Key: "error.sub_size", Arg: entry.Name}
+	case errors.Is(err, subtitles.ErrNoSubtitles):
+		return &downloads.InvalidError{Key: "error.zip_empty", Arg: zip}
+	case errors.Is(err, subtitles.ErrCount):
+		return &downloads.InvalidError{Key: "error.sub_count"}
+	}
+	return &downloads.InvalidError{Key: "error.zip_bad", Arg: zip}
 }
 
 // ReasonText is why a download failed or what to know about it, in the

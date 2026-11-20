@@ -94,12 +94,12 @@ func (h *web) postSubtitles(c *gin.Context) {
 		return
 	}
 	ups, err := uploads(c, "file", c.PostForm("subtitle_lang"))
-	if err == nil && len(ups) != 1 {
+	if err == nil && len(ups) == 0 {
 		fail("error.sub_missing", "")
 		return
 	}
 	if err == nil {
-		err = h.d.Downloads.LibrarySubtitle(ctx, rel, kind, ups[:1])
+		err = h.d.Downloads.LibrarySubtitle(ctx, rel, kind, ups)
 	}
 	var in *downloads.InvalidError
 	if errors.As(err, &in) {
