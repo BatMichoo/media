@@ -27,3 +27,13 @@ func TestHealthz(t *testing.T) {
 		assert.Equal(t, c.body, w.Body.String())
 	}
 }
+
+func TestFavicon(t *testing.T) {
+	a := newApp(t)
+	w := httptest.NewRecorder()
+	// No user headers: browsers ask for it on any page, logged in or not.
+	a.r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/favicon.ico", nil))
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
+	assert.Equal(t, "\x89PNG", w.Body.String()[:4])
+}
