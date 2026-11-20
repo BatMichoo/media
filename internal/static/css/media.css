@@ -110,6 +110,27 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: var(--bg-light); }
 .episode a:hover { background: var(--hover); }
 .episode-thumb .art { box-shadow: none; border-radius: calc(var(--radius) * 0.7); }
+
+/* Subtitle uploads: a quiet "Add subtitles" that opens a small form. */
+.subs-upload { margin-top: 1rem; }
+.subs-upload summary { display: inline-block; cursor: pointer; padding: 0.35rem 0; color: var(--text-muted);
+  font-size: 0.9rem; list-style: none; }
+.subs-upload summary::-webkit-details-marker { display: none; }
+.subs-upload summary::before { content: "+ "; }
+.subs-upload[open] summary::before { content: "− "; }
+.subs-upload summary:hover, .subs-upload[open] summary { color: var(--text); }
+.subs-upload .sheet-form { display: flex; flex-direction: column; align-items: stretch; gap: 0.75rem;
+  max-width: 22rem; margin: 0.5rem 0 0; }
+.subs-upload .sheet-form > div { display: flex; flex-direction: column; gap: 0.3rem; }
+.subs-upload .sheet-form input, .subs-upload .sheet-form select { width: 100%; }
+.subs-upload .sheet-form .sheet-actions { position: static; flex-direction: row; justify-content: flex-start;
+  padding: 0; background: none; }
+.subs-upload .sheet-form .sheet-actions button { width: auto; padding: 0.5rem 1.4rem; }
+.episode .subs-upload { margin: 0.15rem 0 0 0.5rem; }
+.episode .subs-upload summary { font-size: 0.8rem; padding: 0.2rem 0; }
+.episode .subs-upload form { margin-bottom: 0.75rem; }
+.notice { color: var(--success); font-weight: 500; }
+.form-error { color: var(--danger); font-weight: 500; }
 .episode-thumb .art .bar { left: 0.4rem; right: 0.4rem; bottom: 0.4rem; height: 4px; }
 .episode-number { color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; }
 .episode-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }

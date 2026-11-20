@@ -20,6 +20,7 @@ type Deps struct {
 	Catalog   Catalog
 	Player    Player
 	Downloads Downloads
+	Library   Library
 	Watching  Watching
 	Upstream  Upstream
 	LanDomain string // cookies are set for it; POSTs must come from it

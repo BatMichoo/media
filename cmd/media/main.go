@@ -71,7 +71,7 @@ func main() {
 	go dl.Run(ctx, cfg.PollInterval)
 
 	router, err := handlers.NewWebRouter(handlers.Deps{
-		DB: database, Catalog: jf, Player: jf, Downloads: dl, Watching: w, Upstream: jf,
+		DB: database, Catalog: jf, Player: jf, Downloads: dl, Library: jf, Watching: w, Upstream: jf,
 		LanDomain: cfg.LanDomain, AuthURL: cfg.AuthURL(), HomeServerURL: cfg.HomeServerURL(),
 		LinkProblem: func() error { return linkErr },
 	})

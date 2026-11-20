@@ -91,6 +91,21 @@ type fakeDownloads struct {
 	editErr   error
 	addedUser model.User
 	paused    []string // "pause h" or "resume h", in order
+	libSubs   []libSubCall
+	libSubErr error
+}
+
+type libSubCall struct {
+	Video, Kind string
+	Upload      downloads.Upload
+}
+
+func (f *fakeDownloads) LibrarySubtitle(_ context.Context, video, kind string, up downloads.Upload) error {
+	if f.libSubErr != nil {
+		return f.libSubErr
+	}
+	f.libSubs = append(f.libSubs, libSubCall{video, kind, up})
+	return nil
 }
 
 func (f *fakeDownloads) Pause(_ context.Context, hash string) error {
@@ -170,15 +185,16 @@ type app struct {
 	dl   *fakeDownloads
 	w    *fakeWatching
 	play *fakePlayer
+	lib  *fakeLibrary
 	link error
 	r    *gin.Engine
 }
 
 func newApp(t *testing.T) *app {
 	t.Helper()
-	a := &app{cat: newCatalog(), dl: &fakeDownloads{}, w: &fakeWatching{prog: map[string]watching.Progress{}}, play: &fakePlayer{}}
+	a := &app{cat: newCatalog(), dl: &fakeDownloads{}, w: &fakeWatching{prog: map[string]watching.Progress{}}, play: &fakePlayer{}, lib: &fakeLibrary{}}
 	r, err := NewWebRouter(Deps{
-		DB: pinger{}, Catalog: a.cat, Downloads: a.dl, Watching: a.w, Player: a.play,
+		DB: pinger{}, Catalog: a.cat, Downloads: a.dl, Watching: a.w, Player: a.play, Library: a.lib,
 		Upstream:  &fakeUpstream{reply: func(string) *http.Response { return resp(200, nil, "") }},
 		LanDomain: "homeserver.lan", AuthURL: "https://auth.homeserver.lan", HomeServerURL: "https://homeserver.lan/",
 		LinkProblem: func() error { return a.link },

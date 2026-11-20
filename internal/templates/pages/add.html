@@ -18,7 +18,7 @@
         <input type="file" id="subtitles" name="subtitles" multiple accept=".srt,.ass,.ssa,.vtt" />
         <small class="hint">{{ t .Lang "add.subtitles_hint" }}</small>
       </div>
-      {{ template "media/subtitle-lang" . }}
+      {{ template "media/subtitle-lang" (themeDict "Lang" .Lang "ID" "") }}
       <div class="sheet-actions">
         <button type="submit" class="btn-primary sheet-save">{{ t .Lang "add.submit" }}</button>
       </div>
@@ -45,13 +45,44 @@
 </div>
 {{ end }}
 
-{{/* Subtitle language select (Bulgarian first). Input: anything with Lang. */}}
+{{/* Subtitle language select (Bulgarian first). Input: Lang, and ID to
+     keep element ids unique when there are many forms. */}}
 {{ define "media/subtitle-lang" }}
 <div>
-  <label for="subtitle_lang">{{ t .Lang "subs.lang" }}</label>
-  <select id="subtitle_lang" name="subtitle_lang">
+  <label for="subtitle_lang{{ .ID }}">{{ t .Lang "subs.lang" }}</label>
+  <select id="subtitle_lang{{ .ID }}" name="subtitle_lang">
     <option value="bg" selected>{{ t .Lang "lang.bg" }}</option>
     <option value="en">{{ t .Lang "lang.en" }}</option>
   </select>
 </div>
+{{ end }}
+
+{{/* A subtitle upload form. Input: Lang, ID (the movie or episode), Parts
+     (how many parts, 0 or 1 = no part choice). */}}
+{{ define "media/subtitle-upload" }}
+<details class="subs-upload">
+  <summary>{{ t .Lang "subs.add" }}</summary>
+  <form class="sheet-form" method="post" action="/subtitles/{{ .ID }}" enctype="multipart/form-data">
+    <div>
+      <label for="subs-file-{{ .ID }}">{{ t .Lang "subs.file" }}</label>
+      <input type="file" id="subs-file-{{ .ID }}" name="file" accept=".srt,.ass,.ssa,.vtt" required />
+    </div>
+    {{ template "media/subtitle-lang" (themeDict "Lang" .Lang "ID" (printf "-%s" .ID)) }}
+    {{ if gt .Parts 1 }}
+    <div>
+      <label for="subs-part-{{ .ID }}">{{ t .Lang "subs.part" }}</label>
+      <select id="subs-part-{{ .ID }}" name="part">
+        {{ $lang := .Lang }}{{ range $i := .Parts }}<option value="{{ add1 $i }}">{{ printf (t $lang "subs.part_n") (add1 $i) }}</option>{{ end }}
+      </select>
+    </div>
+    {{ end }}
+    <div class="sheet-actions"><button type="submit" class="btn-primary">{{ t .Lang "subs.upload" }}</button></div>
+  </form>
+</details>
+{{ end }}
+
+{{/* The result of a subtitle upload. Input: Lang, Added, Error. */}}
+{{ define "media/subs-notice" }}
+{{ if .Added }}<p class="notice" role="status">{{ t .Lang "subs.added" }}</p>{{ end }}
+{{ if .Error }}<p class="form-error" role="alert">{{ .Error }}</p>{{ end }}
 {{ end }}

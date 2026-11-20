@@ -163,6 +163,13 @@ func (c *Client) Extras(ctx context.Context, movieID string) ([]Item, error) {
 	return items(out), nil
 }
 
+// RefreshItem asks Jellyfin to look at one item's files again (e.g. a
+// subtitle added next to it).
+func (c *Client) RefreshItem(ctx context.Context, id string) error {
+	return c.post(ctx, "/Items/"+url.PathEscape(id)+"/Refresh",
+		url.Values{"MetadataRefreshMode": {"Default"}, "Recursive": {"false"}}, nil, nil)
+}
+
 // Refresh asks Jellyfin to rescan its libraries.
 func (c *Client) Refresh(ctx context.Context) error {
 	return c.send(ctx, http.MethodPost, "/Library/Refresh", nil, nil, true)

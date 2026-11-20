@@ -63,6 +63,7 @@ func NewWebRouter(d Deps) (*gin.Engine, error) {
 	g.POST("/downloads/:hash/pause", h.postPause)
 	g.POST("/downloads/:hash/resume", h.postResume)
 	g.POST("/lang", h.postLang)
+	g.POST("/subtitles/:id", h.postSubtitles)
 	h.registerPlayer(g)
 	return r, nil
 }
@@ -72,6 +73,8 @@ var funcs = template.FuncMap{
 	// pct is a 0..1 fraction as a whole percentage.
 	"pct":   func(f float64) int { return int(math.Round(f * 100)) },
 	"clock": clock,
+	// add1 is n+1 (1-based numbers from a range over a count).
+	"add1": func(n int) int { return n + 1 },
 	// rate is bytes per second in words.
 	"rate": func(b int64) string {
 		switch {

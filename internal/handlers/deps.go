@@ -34,6 +34,13 @@ type Downloads interface {
 	Edit(ctx context.Context, hash, kind, title string, year int) error
 	Pause(ctx context.Context, hash string) error
 	Resume(ctx context.Context, hash string) error
+	LibrarySubtitle(ctx context.Context, video, kind string, up downloads.Upload) error
+}
+
+// Library is asking Jellyfin to look at new files.
+type Library interface {
+	RefreshItem(ctx context.Context, id string) error
+	Refresh(ctx context.Context) error
 }
 
 // Watching is each person's progress and languages.

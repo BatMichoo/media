@@ -183,6 +183,9 @@ type movieView struct {
 	Fraction    float64
 	Extras      []card
 	Unavailable bool
+	Parts       int    // video files the movie is split into (1 = one)
+	SubsAdded   bool   // a subtitle upload just worked
+	SubsError   string // why a subtitle upload didn't, "" = it didn't fail
 }
 
 func (h *web) movie(c *gin.Context) {
@@ -196,7 +199,13 @@ func (h *web) movie(c *gin.Context) {
 		h.unavailable(c, err)
 		return
 	}
-	v := movieView{Lang: lang(c), Item: it, Title: it.DisplayTitle()}
+	v := movieView{Lang: lang(c), Item: it, Title: it.DisplayTitle(), Parts: 1}
+	v.SubsAdded, v.SubsError = subsNotice(c, v.Lang)
+	if it.PartCount > 1 {
+		if parts, err := h.d.Catalog.Parts(ctx, it.ID); err == nil && len(parts) > 1 {
+			v.Parts = len(parts)
+		}
+	}
 	v.Image, v.Backdrop, v.Hue = detailImages(it, v.Title)
 	if p, ok, err := h.d.Watching.Get(ctx, CurrentUser(c).ID, it.ID); err == nil && ok && !p.Finished {
 		v.Resume, v.Fraction = p.Watched, watching.Fraction(p)
@@ -236,14 +245,16 @@ type seasonView struct {
 }
 
 type showView struct {
-	Lang     string
-	Item     jellyfin.Item
-	Title    string
-	Image    string // "" = no poster
-	Backdrop string // "" = none
-	Hue      int
-	Seasons  []seasonView
-	Continue string // the episode to play next, "" = none
+	Lang      string
+	Item      jellyfin.Item
+	Title     string
+	Image     string // "" = no poster
+	Backdrop  string // "" = none
+	Hue       int
+	Seasons   []seasonView
+	Continue  string // the episode to play next, "" = none
+	SubsAdded bool   // a subtitle upload just worked
+	SubsError string // why a subtitle upload didn't, "" = it didn't fail
 }
 
 func (h *web) show(c *gin.Context) {
@@ -281,6 +292,7 @@ func (h *web) show(c *gin.Context) {
 		names[s.Index] = s.Name
 	}
 	v := showView{Lang: l, Item: it, Title: it.DisplayTitle()}
+	v.SubsAdded, v.SubsError = subsNotice(c, l)
 	v.Image, v.Backdrop, v.Hue = detailImages(it, v.Title)
 	for _, e := range eps {
 		if len(v.Seasons) == 0 || v.Seasons[len(v.Seasons)-1].Name != seasonName(l, names, e.ParentIndex) {

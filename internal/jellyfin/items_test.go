@@ -106,3 +106,13 @@ func TestShowTitle(t *testing.T) {
 	assert.Equal(t, "Severance", Item{Type: "Episode", SeriesName: "Severance", Path: "/elsewhere/x.mkv"}.ShowTitle())
 	assert.Equal(t, "", Item{Type: "Movie", Path: "/data/library/Movies/A/A.mkv"}.ShowTitle())
 }
+
+func TestRefreshItem(t *testing.T) {
+	f, c := loggedIn(t)
+	f.on("POST /Items/abc/Refresh", func(*http.Request, map[string]any) (int, any) { return 204, nil })
+	require.NoError(t, c.RefreshItem(context.Background(), "abc"))
+	r := f.find("POST /Items/abc/Refresh")
+	require.NotNil(t, r)
+	assert.Contains(t, r.Query, "MetadataRefreshMode=Default")
+	assert.Contains(t, r.Query, "Recursive=false")
+}

@@ -11,6 +11,8 @@
         <a class="btn-primary play" href="/watch/{{ .Item.ID }}">{{ if .Resume }}{{ printf (t .Lang "movie.resume") (clock .Resume) }}{{ else }}{{ t .Lang "movie.play" }}{{ end }}</a>
         {{ if .Resume }}<div class="bar resume-bar"><span style="width: {{ pct .Fraction }}%"></span></div>{{ end }}
       </div>
+      {{ template "media/subs-notice" (themeDict "Lang" .Lang "Added" .SubsAdded "Error" .SubsError) }}
+      {{ template "media/subtitle-upload" (themeDict "Lang" .Lang "ID" .Item.ID "Parts" .Parts) }}
     </div>
   </div>
   {{ if .Extras }}

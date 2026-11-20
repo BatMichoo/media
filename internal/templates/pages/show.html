@@ -6,6 +6,7 @@
     <div class="detail-body">
       <h1>{{ .Title }}</h1>
       {{ if .Item.Overview }}<p class="overview">{{ .Item.Overview }}</p>{{ end }}
+      {{ template "media/subs-notice" (themeDict "Lang" .Lang "Added" .SubsAdded "Error" .SubsError) }}
     </div>
   </div>
   {{ $lang := .Lang }}
@@ -22,6 +23,7 @@
           <span class="episode-name">{{ .Name }}</span>
           {{ if .Watched }}<span class="episode-watched" title='{{ t $lang "watched" }}'>✓</span>{{ end }}
         </a>
+        {{ template "media/subtitle-upload" (themeDict "Lang" $lang "ID" .ID "Parts" 0) }}
       </li>
       {{ end }}
     </ol>
