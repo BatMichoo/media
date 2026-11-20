@@ -14,7 +14,7 @@ import (
 // the upload's name (or a stand-in such as "S01E03" or "part2") that
 // says which video it belongs to; Video, when set, pins it to exactly
 // that library path instead.
-type Subtitle struct{ ID, Lang, Ext, Name, Video string }
+type Subtitle struct{ ID, Lang, Ext, Name, Video, Label string }
 
 // SubtitleFile is where an uploaded subtitle is kept, relative to the
 // data folder.
@@ -25,9 +25,10 @@ func SubtitleFile(hash string, s Subtitle) string {
 var partSuffix = regexp.MustCompile(` - part(\d+)$`)
 
 // PlaceSubtitles adds a link for each uploaded subtitle next to the video
-// it belongs to, named after that video plus its language
-// ("Dune (2021).bg.srt"). An upload takes the place of a torrent's own
-// subtitle of the same name; of two uploads for the same place the later
+// it belongs to, named after that video, its label if it has one, and its
+// language ("Dune (2021).bg.srt", "Dune (2021).WEB.bg.srt"). An upload
+// takes the place of the torrent's own subtitle in that language for that
+// video, whatever its format; of two uploads for the same place the later
 // one wins. unplaced counts the uploads no video matched.
 func PlaceSubtitles(kind model.Kind, hash string, links []Link, subs []Subtitle) (out []Link, unplaced int) {
 	var videos []Link
@@ -37,6 +38,7 @@ func PlaceSubtitles(kind model.Kind, hash string, links []Link, subs []Subtitle)
 		}
 	}
 	placed := map[string]Link{}
+	plain := map[string]bool{} // <video stem>.<lang><ext> an upload displaces
 	var order []string
 	for _, s := range subs {
 		v, ok := videoFor(kind, s, videos)
@@ -45,14 +47,20 @@ func PlaceSubtitles(kind model.Kind, hash string, links []Link, subs []Subtitle)
 			continue
 		}
 		stem := strings.TrimSuffix(v.To, path.Ext(v.To))
+		for ext := range subtitles.Exts {
+			plain[stem+"."+s.Lang+ext] = true
+		}
 		dst := stem + "." + s.Lang + s.Ext
+		if s.Label != "" {
+			dst = stem + "." + s.Label + "." + s.Lang + s.Ext
+		}
 		if _, seen := placed[dst]; !seen {
 			order = append(order, dst)
 		}
 		placed[dst] = Link{SubtitleFile(hash, s), dst}
 	}
 	for _, l := range links {
-		if _, taken := placed[l.To]; !taken {
+		if _, taken := placed[l.To]; !taken && !plain[l.To] {
 			out = append(out, l)
 		}
 	}

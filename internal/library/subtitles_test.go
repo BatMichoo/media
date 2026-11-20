@@ -89,3 +89,34 @@ func TestPlaceCD1OnSingleFileMovie(t *testing.T) {
 	assert.Equal(t, 0, unplaced)
 	assert.Contains(t, out, Link{"subtitles/h/a.srt", dir + "/Dune.bg.srt"})
 }
+
+func TestPlaceLabelled(t *testing.T) {
+	dir := "library/Movies/Dune (2021)"
+	links := []Link{{"downloads/h/Dune.mkv", dir + "/Dune (2021).mkv"}}
+	out, unplaced := PlaceSubtitles("movie", "h", links, []Subtitle{
+		{ID: "a", Lang: "bg", Ext: ".srt", Name: "x.srt", Label: "BluRay"},
+		{ID: "b", Lang: "bg", Ext: ".srt", Name: "y.srt", Label: "WEB"},
+	})
+	assert.Equal(t, 0, unplaced)
+	assert.Equal(t, []Link{
+		links[0],
+		{"subtitles/h/a.srt", dir + "/Dune (2021).BluRay.bg.srt"},
+		{"subtitles/h/b.srt", dir + "/Dune (2021).WEB.bg.srt"},
+	}, out)
+}
+
+func TestPlaceUploadDisplacesTorrentSubOtherFormat(t *testing.T) {
+	// An upload takes the place of the torrent's own subtitle in that
+	// language whatever its format, labelled or not.
+	dir := "library/Movies/Dune (2021)"
+	links := []Link{
+		{"downloads/h/Dune.mkv", dir + "/Dune (2021).mkv"},
+		{"downloads/h/Dune.bg.ass", dir + "/Dune (2021).bg.ass"},
+		{"downloads/h/Dune.en.srt", dir + "/Dune (2021).en.srt"},
+	}
+	out, _ := PlaceSubtitles("movie", "h", links, []Subtitle{{ID: "a", Lang: "bg", Ext: ".srt", Name: "x.srt", Label: "WEB"}})
+	assert.Equal(t, []Link{
+		links[0], links[2],
+		{"subtitles/h/a.srt", dir + "/Dune (2021).WEB.bg.srt"},
+	}, out)
+}

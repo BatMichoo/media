@@ -94,3 +94,15 @@ func TestInTx(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"library/x", "library/y"}, links)
 }
+
+func TestSubtitleLabelRoundTrip(t *testing.T) {
+	d := dbtest.New(t)
+	ctx := context.Background()
+	require.NoError(t, d.InsertDownload(ctx, db.Download{Hash: "a", Kind: model.KindMovie, Title: "X", Year: 2000,
+		AddedBy: "6f1c2a3b-0000-4000-8000-000000000001", AddedByName: "x", State: model.StateDownloading}))
+	require.NoError(t, d.AddSubtitle(ctx, db.Subtitle{Hash: "a", ID: "s1", Lang: "bg", Ext: ".srt", Name: "x.srt", Label: "WEB"}))
+	subs, err := d.Subtitles(ctx, "a")
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	assert.Equal(t, "WEB", subs[0].Label)
+}

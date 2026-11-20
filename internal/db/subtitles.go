@@ -11,19 +11,20 @@ import (
 type Subtitle struct {
 	Hash, ID, Lang, Ext, Name string
 	Video                     string // pinned library video path, or ""
+	Label                     string // tells it apart from others uploaded with it, or ""
 	AddedAt                   time.Time
 }
 
 // AddSubtitle records an uploaded subtitle.
 func (d *DB) AddSubtitle(ctx context.Context, s Subtitle) error {
-	_, err := d.q(ctx).ExecContext(ctx, `INSERT INTO download_subtitles (hash, id, lang, ext, name, video)
-		VALUES ($1, $2, $3, $4, $5, $6)`, s.Hash, s.ID, s.Lang, s.Ext, s.Name, s.Video)
+	_, err := d.q(ctx).ExecContext(ctx, `INSERT INTO download_subtitles (hash, id, lang, ext, name, video, label)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`, s.Hash, s.ID, s.Lang, s.Ext, s.Name, s.Video, s.Label)
 	return err
 }
 
 // Subtitles is a download's uploaded subtitles, oldest first.
 func (d *DB) Subtitles(ctx context.Context, hash string) ([]Subtitle, error) {
-	rows, err := d.q(ctx).QueryContext(ctx, `SELECT hash, id, lang, ext, name, video, added_at
+	rows, err := d.q(ctx).QueryContext(ctx, `SELECT hash, id, lang, ext, name, video, label, added_at
 		FROM download_subtitles WHERE hash = $1 ORDER BY added_at, id`, hash)
 	if err != nil {
 		return nil, err
@@ -32,7 +33,7 @@ func (d *DB) Subtitles(ctx context.Context, hash string) ([]Subtitle, error) {
 	var out []Subtitle
 	for rows.Next() {
 		var s Subtitle
-		if err := rows.Scan(&s.Hash, &s.ID, &s.Lang, &s.Ext, &s.Name, &s.Video, &s.AddedAt); err != nil {
+		if err := rows.Scan(&s.Hash, &s.ID, &s.Lang, &s.Ext, &s.Name, &s.Video, &s.Label, &s.AddedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, s)

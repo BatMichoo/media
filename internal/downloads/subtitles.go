@@ -275,7 +275,7 @@ func writeFile(file string, data []byte) error {
 }
 
 func librarySub(s db.Subtitle) library.Subtitle {
-	return library.Subtitle{ID: s.ID, Lang: s.Lang, Ext: s.Ext, Name: s.Name, Video: s.Video}
+	return library.Subtitle{ID: s.ID, Lang: s.Lang, Ext: s.Ext, Name: s.Name, Video: s.Video, Label: s.Label}
 }
 
 func librarySubs(subs []db.Subtitle) []library.Subtitle {
