@@ -7,6 +7,7 @@ require (
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/gin-gonic/gin v1.10.1
 	github.com/lib/pq v1.10.9
+	github.com/nwaples/rardecode/v2 v2.4.6
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/stretchr/testify v1.11.0
 	golang.org/x/text v0.27.0

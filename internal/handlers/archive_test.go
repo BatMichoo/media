@@ -11,6 +11,7 @@ import (
 
 	"github.com/BatMichoo/media/internal/downloads"
 	"github.com/BatMichoo/media/internal/subtitles"
+	"github.com/BatMichoo/media/internal/subtitles/rartest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,8 +71,8 @@ func TestBadZip(t *testing.T) {
 		data      []byte
 		key, file string
 	}{
-		"not a zip":   {[]byte("junk"), "error.zip_bad", "subs.zip"},
-		"no subs":     {zipOf(t, "readme.txt", "x"), "error.zip_empty", "subs.zip"},
+		"not a zip":   {[]byte("junk"), "error.archive_bad", "subs.zip"},
+		"no subs":     {zipOf(t, "readme.txt", "x"), "error.archive_empty", "subs.zip"},
 		"entry big":   {zipOf(t, "big.srt", strings.Repeat("a", subtitles.MaxSize+1)), "error.sub_size", "big.srt"},
 		"zip too big": {bytes.Repeat([]byte("a"), subtitles.MaxSize+1), "error.sub_size", "subs.zip"},
 	} {
@@ -95,21 +96,23 @@ func TestBadZipMessages(t *testing.T) {
 	a := newApp(t)
 	m := movie("Dune", "Dune (2021)", 2021)
 	a.cat.items[m.ID] = m
-	_, doc := a.get(t, "/movies/"+m.ID+"?subs_error=error.zip_bad&subs_file=subs.zip")
-	assert.Contains(t, doc.Text(), "subs.zip can't be opened as a zip file.")
-	_, doc = a.get(t, "/movies/"+m.ID+"?subs_error=error.zip_empty&subs_file=subs.zip", "Cookie", "homeserver_lang=bg")
+	_, doc := a.get(t, "/movies/"+m.ID+"?subs_error=error.archive_bad&subs_file=subs.rar")
+	assert.Contains(t, doc.Text(), "subs.rar can't be opened as a .zip or .rar archive")
+	_, doc = a.get(t, "/movies/"+m.ID+"?subs_error=error.archive_empty&subs_file=subs.zip", "Cookie", "homeserver_lang=bg")
 	assert.Contains(t, doc.Text(), "subs.zip")
-	assert.NotContains(t, doc.Text(), "error.zip_empty")
+	assert.NotContains(t, doc.Text(), "error.archive_empty")
 }
 
 func TestUploadAcceptsZip(t *testing.T) {
 	a := newApp(t)
 	_, doc := a.get(t, "/add")
 	assert.Contains(t, doc.Find(`input[name=subtitles]`).AttrOr("accept", ""), ".zip")
+	assert.Contains(t, doc.Find(`input[name=subtitles]`).AttrOr("accept", ""), ".rar")
 	m := movie("Dune", "Dune (2021)", 2021)
 	a.cat.items[m.ID] = m
 	_, doc = a.get(t, "/movies/"+m.ID)
 	assert.Contains(t, doc.Find(`form[action="/subtitles/`+m.ID+`"] input[name=file]`).AttrOr("accept", ""), ".zip")
+	assert.Contains(t, doc.Find(`form[action="/subtitles/`+m.ID+`"] input[name=file]`).AttrOr("accept", ""), ".rar")
 }
 
 func TestManyZipsStopAtTheLimit(t *testing.T) {
@@ -134,4 +137,48 @@ func TestManyZipsStopAtTheLimit(t *testing.T) {
 	w, _ := a.postMultipart(t, "/add", &b, mw.FormDataContentType())
 	assert.Equal(t, 422, w.Code)
 	assert.Empty(t, a.dl.added)
+}
+
+func TestMovieRarSubtitles(t *testing.T) {
+	a := newApp(t)
+	m := movie("Dune", "Dune (2021)", 2021)
+	a.cat.items[m.ID] = m
+	body, ct := subtitleForm(t, map[string]string{"subtitle_lang": "bg"}, "dune.RAR", rartest.Of("Subs/", "", "Subs/Dune.BluRay.srt", "blu", "Dune.WEB.srt", "web"))
+	w, _ := a.postMultipart(t, "/subtitles/"+m.ID, body, ct)
+	assert.Equal(t, 303, w.Code)
+	assert.Equal(t, "/movies/"+m.ID+"?subs=1", w.Header().Get("Location"))
+	require.Len(t, a.dl.libSubs, 1)
+	assert.Equal(t, []downloads.Upload{
+		{Name: "Dune.BluRay.srt", Lang: "bg", Data: []byte("blu")},
+		{Name: "Dune.WEB.srt", Lang: "bg", Data: []byte("web")},
+	}, a.dl.libSubs[0].Uploads)
+}
+
+func TestAddRarSubtitles(t *testing.T) {
+	a := newApp(t)
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	for k, v := range map[string]string{"magnet": "magnet:?xt=1", "kind": "series", "title": "Show", "subtitle_lang": "bg"} {
+		require.NoError(t, mw.WriteField(k, v))
+	}
+	fw, err := mw.CreateFormFile("subtitles", "show.rar")
+	require.NoError(t, err)
+	_, _ = fw.Write(rartest.Of("Show.S01E01.srt", "one", "Show.S01E02.srt", "two"))
+	require.NoError(t, mw.Close())
+	w, _ := a.postMultipart(t, "/add", &b, mw.FormDataContentType())
+	assert.Equal(t, 303, w.Code)
+	require.Len(t, a.dl.added, 1)
+	assert.Len(t, a.dl.added[0].Subtitles, 2)
+}
+
+func TestSplitRarRefused(t *testing.T) {
+	a := newApp(t)
+	m := movie("Dune", "Dune (2021)", 2021)
+	a.cat.items[m.ID] = m
+	body, ct := subtitleForm(t, map[string]string{"subtitle_lang": "bg"}, "subs.part1.rar", rartest.Split("Dune.srt", "x"))
+	w, _ := a.postMultipart(t, "/subtitles/"+m.ID, body, ct)
+	loc, err := url.Parse(w.Header().Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, "error.archive_bad", loc.Query().Get("subs_error"))
+	assert.Empty(t, a.dl.libSubs)
 }

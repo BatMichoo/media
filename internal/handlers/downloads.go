@@ -8,7 +8,6 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"path"
 	"strconv"
 	"strings"
 
@@ -334,8 +333,8 @@ func (h *web) postStartNow(c *gin.Context) { h.pauseOrResume(c, h.d.Downloads.St
 func (h *web) postAnyOrder(c *gin.Context) { h.pauseOrResume(c, h.d.Downloads.AnyOrder) }
 
 // uploads reads the subtitle files sent in a form field, all in one
-// language; the downloads service checks them. A .zip stands for the
-// subtitle files in it (subtitles.Unzip).
+// language; the downloads service checks them. A .zip or .rar stands for
+// the subtitle files in it (subtitles.Unpack).
 func uploads(c *gin.Context, field, lang string) ([]downloads.Upload, error) {
 	if c.Request.MultipartForm == nil {
 		return nil, nil
@@ -362,13 +361,13 @@ func uploads(c *gin.Context, field, lang string) ([]downloads.Upload, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !strings.EqualFold(path.Ext(fh.Filename), ".zip") {
+		if !subtitles.IsArchive(fh.Filename) {
 			out = append(out, downloads.Upload{Name: fh.Filename, Lang: lang, Data: data})
 			continue
 		}
-		entries, err := subtitles.UnzipAtMost(data, downloads.MaxUploads-len(out))
+		entries, err := subtitles.Unpack(fh.Filename, data, downloads.MaxUploads-len(out))
 		if err != nil {
-			return nil, zipError(fh.Filename, err)
+			return nil, archiveError(fh.Filename, err)
 		}
 		for _, e := range entries {
 			out = append(out, downloads.Upload{Name: e.Name, Lang: lang, Data: e.Data})
@@ -377,18 +376,19 @@ func uploads(c *gin.Context, field, lang string) ([]downloads.Upload, error) {
 	return out, nil
 }
 
-// zipError is the message for a zip (named zip) that can't be used.
-func zipError(zip string, err error) error {
+// archiveError is the message for an archive (named archive) that can't
+// be used.
+func archiveError(archive string, err error) error {
 	var entry *subtitles.EntryError
 	switch {
 	case errors.As(err, &entry) && errors.Is(err, subtitles.ErrSize):
 		return &downloads.InvalidError{Key: "error.sub_size", Arg: entry.Name}
 	case errors.Is(err, subtitles.ErrNoSubtitles):
-		return &downloads.InvalidError{Key: "error.zip_empty", Arg: zip}
+		return &downloads.InvalidError{Key: "error.archive_empty", Arg: archive}
 	case errors.Is(err, subtitles.ErrCount):
 		return &downloads.InvalidError{Key: "error.sub_count"}
 	}
-	return &downloads.InvalidError{Key: "error.zip_bad", Arg: zip}
+	return &downloads.InvalidError{Key: "error.archive_bad", Arg: archive}
 }
 
 // ReasonText is why a download failed or what to know about it, in the

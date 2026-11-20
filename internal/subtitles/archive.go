@@ -11,19 +11,24 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/nwaples/rardecode/v2"
 	"golang.org/x/text/encoding/charmap"
 )
 
-// MaxEntries is the most subtitle files taken from one zip.
+// MaxEntries is the most subtitle files taken from one archive.
 const MaxEntries = 30
 
+// maxDictionary bounds the memory a RAR archive may ask the decoder for
+// (WinRAR's default is 32 MB for RAR5, 4 MB for RAR4).
+const maxDictionary = 64 << 20
+
 var (
-	ErrZip         = errors.New("not a zip file that can be opened")
-	ErrNoSubtitles = errors.New("no subtitle files in the zip")
-	ErrCount       = errors.New("too many subtitle files in the zip")
+	ErrArchive     = errors.New("not an archive that can be opened")
+	ErrNoSubtitles = errors.New("no subtitle files in the archive")
+	ErrCount       = errors.New("too many subtitle files in the archive")
 )
 
-// EntryError is a problem with one file inside a zip.
+// EntryError is a problem with one file inside an archive.
 type EntryError struct {
 	Name string // the file's name (without folders)
 	Err  error
@@ -32,48 +37,67 @@ type EntryError struct {
 func (e *EntryError) Error() string { return e.Name + ": " + e.Err.Error() }
 func (e *EntryError) Unwrap() error { return e.Err }
 
-// Entry is a subtitle file taken out of a zip, named without its folders.
+// Entry is a subtitle file taken out of an archive, named without its
+// folders.
 type Entry struct {
 	Name string
 	Data []byte
 }
 
-// Unzip takes the subtitle files (.srt, .ass, .ssa, .vtt) out of a zip, in
-// the zip's order. Folders, macOS's __MACOSX copies, hidden files and
-// other files are left out. Each file is read through a limit, so one that
-// unpacks to more than MaxSize is refused whatever its header says.
-func Unzip(data []byte) ([]Entry, error) { return UnzipAtMost(data, MaxEntries) }
-
-// UnzipAtMost is Unzip taking at most max subtitle files (ErrCount past
-// that), so several zips in one upload share one allowance.
-func UnzipAtMost(data []byte, max int) ([]Entry, error) {
-	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return nil, ErrZip
+// IsArchive reports whether a file name is one Unpack opens (.zip, .rar).
+func IsArchive(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".zip", ".rar":
+		return true
 	}
+	return false
+}
+
+// Unpack takes the subtitle files (.srt, .ass, .ssa, .vtt) out of a zip or
+// a RAR archive (by its name), in the archive's order, at most max of them
+// (ErrCount past that), so several archives in one upload share one
+// allowance. Folders, macOS's __MACOSX copies, hidden files, links and
+// other files are left out. Each file is read through a limit, so one that
+// unpacks to more than MaxSize is refused whatever its header says. A RAR
+// split into parts or with a password isn't opened (ErrArchive): the
+// reader can't tell a split one from a cut-off one, so both are refused
+// whole, never taken in part.
+func Unpack(name string, data []byte, max int) ([]Entry, error) {
 	var out []Entry
-	for _, f := range r.File {
-		name := path.Base(strings.ReplaceAll(entryName(f.Name), "\\", "/"))
-		if f.FileInfo().IsDir() || strings.HasPrefix(name, ".") || !Exts[strings.ToLower(path.Ext(name))] ||
-			strings.Contains("/"+f.Name+"/", "/__MACOSX/") {
-			continue
+	add := func(name string, open func() (io.ReadCloser, error)) error {
+		name = path.Base(strings.ReplaceAll(entryName(name), "\\", "/"))
+		if strings.HasPrefix(name, ".") || !Exts[strings.ToLower(path.Ext(name))] {
+			return nil
 		}
 		if len(out) >= max {
-			return nil, ErrCount
+			return ErrCount
 		}
-		rc, err := f.Open()
+		rc, err := open()
 		if err != nil {
-			return nil, &EntryError{Name: name, Err: ErrZip}
+			return &EntryError{Name: name, Err: ErrArchive}
 		}
 		b, err := io.ReadAll(io.LimitReader(rc, MaxSize+1))
 		rc.Close()
 		switch {
 		case err != nil:
-			return nil, &EntryError{Name: name, Err: ErrZip}
+			return &EntryError{Name: name, Err: ErrArchive}
 		case len(b) > MaxSize:
-			return nil, &EntryError{Name: name, Err: ErrSize}
+			return &EntryError{Name: name, Err: ErrSize}
 		}
 		out = append(out, Entry{Name: name, Data: b})
+		return nil
+	}
+	var err error
+	switch strings.ToLower(path.Ext(name)) {
+	case ".zip":
+		err = unzip(data, add)
+	case ".rar":
+		err = unrar(data, add)
+	default:
+		err = ErrArchive
+	}
+	if err != nil {
+		return nil, err
 	}
 	if len(out) == 0 {
 		return nil, ErrNoSubtitles
@@ -81,7 +105,47 @@ func UnzipAtMost(data []byte, max int) ([]Entry, error) {
 	return out, nil
 }
 
-// entryName is a zip entry's name as UTF-8. Windows tools store names in
+// unzip hands each file of a zip to add.
+func unzip(data []byte, add func(string, func() (io.ReadCloser, error)) error) error {
+	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return ErrArchive
+	}
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() || strings.Contains("/"+f.Name+"/", "/__MACOSX/") {
+			continue
+		}
+		if err := add(f.Name, f.Open); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// unrar hands each file of a RAR archive (RAR4 or RAR5, one part) to add.
+func unrar(data []byte, add func(string, func() (io.ReadCloser, error)) error) error {
+	r, err := rardecode.NewReader(bytes.NewReader(data), rardecode.MaxDictionarySize(maxDictionary))
+	if err != nil {
+		return ErrArchive
+	}
+	for {
+		h, err := r.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return ErrArchive
+		}
+		if h.IsDir || h.LinkType != 0 || strings.Contains("/"+h.Name+"/", "/__MACOSX/") {
+			continue
+		}
+		if err := add(h.Name, func() (io.ReadCloser, error) { return io.NopCloser(r), nil }); err != nil {
+			return err
+		}
+	}
+}
+
+// entryName is an archive entry's name as UTF-8. Windows tools store names in
 // the OEM code page (cp866 for Cyrillic) without saying so; a name that
 // isn't valid UTF-8 is read as that.
 func entryName(name string) string {

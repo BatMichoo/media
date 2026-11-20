@@ -37,23 +37,23 @@ func TestUnzip(t *testing.T) {
 		".hidden.srt", "junk",
 		"Dune.WEB.srt", "two",
 	)
-	got, err := Unzip(data)
+	got, err := Unpack("x.zip", data, MaxEntries)
 	require.NoError(t, err)
 	assert.Equal(t, []Entry{{Name: "Dune.BluRay.srt", Data: []byte("one")}, {Name: "Dune.WEB.srt", Data: []byte("two")}}, got)
 }
 
 func TestUnzipNoSubtitles(t *testing.T) {
-	_, err := Unzip(zipOf(t, "readme.txt", "hi"))
+	_, err := Unpack("x.zip", zipOf(t, "readme.txt", "hi"), MaxEntries)
 	assert.ErrorIs(t, err, ErrNoSubtitles)
 }
 
 func TestUnzipBad(t *testing.T) {
-	_, err := Unzip([]byte("not a zip"))
-	assert.ErrorIs(t, err, ErrZip)
+	_, err := Unpack("x.zip", []byte("not a zip"), MaxEntries)
+	assert.ErrorIs(t, err, ErrArchive)
 }
 
 func TestUnzipEntryTooBig(t *testing.T) {
-	_, err := Unzip(zipOf(t, "small.srt", "x", "big.srt", strings.Repeat("a", MaxSize+1)))
+	_, err := Unpack("x.zip", zipOf(t, "small.srt", "x", "big.srt", strings.Repeat("a", MaxSize+1)), MaxEntries)
 	assert.ErrorIs(t, err, ErrSize)
 	var e *EntryError
 	require.True(t, errors.As(err, &e))
@@ -65,7 +65,7 @@ func TestUnzipTooMany(t *testing.T) {
 	for i := 0; i <= MaxEntries; i++ {
 		files = append(files, fmt.Sprintf("e%02d.srt", i), "x")
 	}
-	_, err := Unzip(zipOf(t, files...))
+	_, err := Unpack("x.zip", zipOf(t, files...), MaxEntries)
 	assert.ErrorIs(t, err, ErrCount)
 }
 
@@ -102,7 +102,7 @@ func TestUnzipOEMNames(t *testing.T) {
 		_, _ = f.Write([]byte("x"))
 	}
 	require.NoError(t, w.Close())
-	got, err := Unzip(buf.Bytes())
+	got, err := Unpack("x.zip", buf.Bytes(), MaxEntries)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	assert.Equal(t, "Дюна.srt", got[0].Name)

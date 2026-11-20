@@ -15,7 +15,7 @@
       {{ template "media/kind-title-year" . }}
       <div>
         <label for="subtitles">{{ t .Lang "add.subtitles" }}</label>
-        <input type="file" id="subtitles" name="subtitles" multiple accept=".srt,.ass,.ssa,.vtt,.zip,application/zip" />
+        <input type="file" id="subtitles" name="subtitles" multiple accept=".srt,.ass,.ssa,.vtt,.zip,.rar,application/zip,application/vnd.rar,application/x-rar-compressed" />
         <small class="hint">{{ t .Lang "add.subtitles_hint" }}</small>
       </div>
       {{ template "media/subtitle-lang" (themeDict "Lang" .Lang "ID" "") }}
@@ -65,7 +65,7 @@
   <form class="sheet-form" method="post" action="/subtitles/{{ .ID }}" enctype="multipart/form-data">
     <div>
       <label for="subs-file-{{ .ID }}">{{ t .Lang "subs.file" }}</label>
-      <input type="file" id="subs-file-{{ .ID }}" name="file" accept=".srt,.ass,.ssa,.vtt,.zip,application/zip" required />
+      <input type="file" id="subs-file-{{ .ID }}" name="file" accept=".srt,.ass,.ssa,.vtt,.zip,.rar,application/zip,application/vnd.rar,application/x-rar-compressed" required />
     </div>
     {{ template "media/subtitle-lang" (themeDict "Lang" .Lang "ID" (printf "-%s" .ID)) }}
     {{ if gt .Parts 1 }}
