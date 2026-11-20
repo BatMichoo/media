@@ -359,3 +359,16 @@ func TestPortOpen(t *testing.T) {
 	assert.Equal(t, "session-get", f.calls[0].Method)
 	assert.Equal(t, "port-test", f.calls[1].Method)
 }
+
+func TestGetChecking(t *testing.T) {
+	f := &fake{reply: func(call) map[string]any {
+		return ok(map[string]any{"torrents": []any{
+			map[string]any{"hashString": "A", "status": 1}, map[string]any{"hashString": "B", "status": 2}, map[string]any{"hashString": "C", "status": 4}}})
+	}}
+	_, c := f.server(t)
+	got, err := c.Get(context.Background(), []string{"a", "b", "c"})
+	require.NoError(t, err)
+	assert.True(t, got["a"].Checking)
+	assert.True(t, got["b"].Checking)
+	assert.False(t, got["c"].Checking)
+}

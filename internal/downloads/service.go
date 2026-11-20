@@ -138,18 +138,24 @@ type Service struct {
 	Now     func() time.Time // the clock
 	Log     *log.Logger
 
-	PortEvery time.Duration // how often the port test may run
+	PortEvery  time.Duration // how often the port test may run
+	StallAfter time.Duration // how long a download must be stalled to show as stuck
 
-	portMu     sync.Mutex
-	portTested time.Time // last port test that answered; zero = none yet
-	portOpen   bool
-	port       int // Transmission's peer port, from that test
+	// Guarded by liveMu, not mu: List and the port test don't wait for a
+	// poll round or an edit.
+	liveMu       sync.Mutex
+	portTried    time.Time // last port test attempt; zero = none yet
+	portAnswered bool      // the last attempt answered
+	portOpen     bool
+	port         int                  // Transmission's peer port, from that test
+	stalledSince map[string]time.Time // hash -> when it last stopped moving
 }
 
 // New makes the service; seeding lasts 72 hours.
 func New(store Store, t Torrents, lib Library, dataDir string) *Service {
 	return &Service{store: store, t: t, lib: lib, dataDir: dataDir, pending: map[string]bool{},
-		SeedFor: 72 * time.Hour, Now: time.Now, Log: log.Default(), PortEvery: 10 * time.Minute}
+		SeedFor: 72 * time.Hour, Now: time.Now, Log: log.Default(),
+		PortEvery: 10 * time.Minute, StallAfter: time.Minute, stalledSince: map[string]time.Time{}}
 }
 
 const maxTitleBytes = 150
@@ -290,7 +296,7 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 		out[i].RateUpload, out[i].Uploaded, out[i].Ratio = t.RateUpload, t.Uploaded, t.Ratio
 		out[i].Peers, out[i].PeersSending, out[i].Seeders = t.Peers, t.PeersSending, t.Seeders
 		out[i].QueuePos, out[i].TrackerError = t.QueuePos, t.TrackerError
-		out[i].Stuck = stuckReason(out[i].State, out[i].Paused, t)
+		out[i].Stuck = s.stuck(out[i].Hash, stuckReason(out[i].State, out[i].Paused, t))
 		if out[i].Stuck == "no_peers" {
 			out[i].PortClosed, out[i].Port = s.portClosed()
 		}
@@ -310,7 +316,7 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 // (or isn't downloading). See Download.Stuck.
 func stuckReason(state string, paused bool, t transmission.Torrent) string {
 	switch {
-	case state != "downloading" || paused || t.Stopped || t.PercentDone >= 1:
+	case state != "downloading" || paused || t.Stopped || t.Checking || t.PercentDone >= 1:
 		return ""
 	case t.Queued:
 		return "queued"
@@ -326,20 +332,45 @@ func stuckReason(state string, paused bool, t transmission.Torrent) string {
 	return "not_sending"
 }
 
+// stuck is reason once the download has been stalled for StallAfter, ""
+// before that: a just-started torrent often waits a moment for peers.
+func (s *Service) stuck(hash, reason string) string {
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	if reason == "" {
+		delete(s.stalledSince, hash)
+		return ""
+	}
+	since, ok := s.stalledSince[hash]
+	if !ok {
+		since = s.Now()
+		s.stalledSince[hash] = since
+	}
+	if s.Now().Sub(since) < s.StallAfter {
+		return ""
+	}
+	return reason
+}
+
 // portClosed is true, with the port, when the last port test said the
 // peer port is closed.
 func (s *Service) portClosed() (bool, int) {
-	s.portMu.Lock()
-	defer s.portMu.Unlock()
-	return !s.portTested.IsZero() && !s.portOpen, s.port
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	return s.portAnswered && !s.portOpen, s.port
 }
 
 // testPort runs Transmission's port test when it's due. A failed test is
 // only logged: the page then just doesn't mention the port.
 func (s *Service) testPort(ctx context.Context) {
-	s.portMu.Lock()
-	due := s.portTested.IsZero() || s.Now().Sub(s.portTested) >= s.PortEvery
-	s.portMu.Unlock()
+	// The attempt counts, answered or not, so a port test that keeps
+	// failing still runs only every PortEvery.
+	s.liveMu.Lock()
+	due := s.portTried.IsZero() || s.Now().Sub(s.portTried) >= s.PortEvery
+	if due {
+		s.portTried = s.Now()
+	}
+	s.liveMu.Unlock()
 	if !due {
 		return
 	}
@@ -348,9 +379,9 @@ func (s *Service) testPort(ctx context.Context) {
 		s.Log.Printf("port test: %v", err)
 		return
 	}
-	s.portMu.Lock()
-	s.portTested, s.portOpen, s.port = s.Now(), open, port
-	s.portMu.Unlock()
+	s.liveMu.Lock()
+	s.portAnswered, s.portOpen, s.port = true, open, port
+	s.liveMu.Unlock()
 }
 
 // selectFiles marks t's wanted files (library.Wanted) and unmarks the
@@ -473,14 +504,26 @@ func (s *Service) Run(ctx context.Context, every time.Duration) {
 // seeding what has seeded long enough, and make every unfinished torrent
 // download its pieces in order (one added before, or as a duplicate).
 func (s *Service) Poll(ctx context.Context) error {
+	noPeers, err := s.poll(ctx)
+	if noPeers {
+		// Outside mu: the test can take a while (Transmission asks an
+		// outside site), and nothing else should wait for it.
+		s.testPort(ctx)
+	}
+	return err
+}
+
+// poll is Poll's round, under mu. noPeers is true when some download is
+// stuck without peers, so the port test is worth running.
+func (s *Service) poll(ctx context.Context) (noPeers bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rows, err := s.store.ListDownloads(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if len(rows) == 0 {
-		return nil
+		return false, nil
 	}
 	hashes := make([]string, 0, len(rows))
 	for _, r := range rows {
@@ -488,10 +531,9 @@ func (s *Service) Poll(ctx context.Context) error {
 	}
 	live, err := s.t.Get(ctx, hashes)
 	if err != nil {
-		return fmt.Errorf("transmission: %w", err)
+		return false, fmt.Errorf("transmission: %w", err)
 	}
 	var errs []error
-	noPeers := false
 	for _, r := range rows {
 		t, ok := live[r.Hash]
 		if r.State == "downloading" {
@@ -505,7 +547,7 @@ func (s *Service) Poll(ctx context.Context) error {
 			}
 			delete(s.pending, r.Hash)
 		}
-		if ok && stuckReason(r.State, r.Paused, t) == "no_peers" {
+		if ok && s.stuck(r.Hash, stuckReason(r.State, r.Paused, t)) == "no_peers" {
 			noPeers = true
 		}
 		if ok && t.PercentDone < 1 && !t.Sequential && r.InOrder {
@@ -519,10 +561,7 @@ func (s *Service) Poll(ctx context.Context) error {
 			}
 		}
 	}
-	if noPeers {
-		s.testPort(ctx)
-	}
-	return errors.Join(errs...)
+	return noPeers, errors.Join(errs...)
 }
 
 // StartNow starts a queued download straight away.

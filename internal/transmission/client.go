@@ -57,6 +57,7 @@ type Torrent struct {
 	Peers        int     // peers connected
 	PeersSending int     // connected peers sending to us
 	Queued       bool    // waiting in Transmission's download queue
+	Checking     bool    // checking its data (or waiting to)
 	QueuePos     int     // 1-based place in the queue
 	Seeders      int     // the trackers' highest seeder count; -1 when not known
 	TrackerError string  // why announcing failed, when no tracker answered
@@ -124,6 +125,7 @@ func (c *Client) Get(ctx context.Context, hashes []string) (map[string]Torrent, 
 			Peers:        t.PeersConnected,
 			PeersSending: t.PeersSendingToUs,
 			Queued:       t.Status == 3,
+			Checking:     t.Status == 1 || t.Status == 2,
 			QueuePos:     t.QueuePosition + 1,
 		}
 		tor.Seeders, tor.TrackerError = trackerSummary(t.TrackerStats)

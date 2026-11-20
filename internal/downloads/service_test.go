@@ -36,6 +36,8 @@ type fakeTorrents struct {
 	portCalls int
 	portOpen  bool
 	portErr   error
+	portGate  chan struct{} // when set, PortOpen signals inPort and waits for it
+	inPort    chan struct{}
 	wantSet   []string // "hash +0,1 -2" per SetWanted call
 	placed    map[string]string
 	nextHash  string
@@ -162,6 +164,10 @@ func (f *fakeTorrents) StartNow(_ context.Context, hash string) error {
 }
 
 func (f *fakeTorrents) PortOpen(context.Context) (bool, int, error) {
+	if f.portGate != nil {
+		f.inPort <- struct{}{}
+		<-f.portGate
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.portCalls++
@@ -193,6 +199,7 @@ func newEnv(t *testing.T) *env {
 	e := &env{t: newFakeTorrents(), lib: &fakeLibrary{}, dir: dir, now: time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)}
 	e.s = New(dbtest.New(t), e.t, e.lib, dir)
 	e.s.Now = func() time.Time { return e.now }
+	e.s.StallAfter = 0 // stuck at once; TestStuckAfterGrace checks the wait
 	return e
 }
 
@@ -1153,4 +1160,67 @@ func TestPortTestErrorIgnored(t *testing.T) {
 	d := e.get(t, "h1")
 	assert.Equal(t, "no_peers", d.Stuck)
 	assert.False(t, d.PortClosed)
+}
+
+func TestPortTestFailureWaitsToo(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3})
+	e.t.portErr = errors.New("port-test failed")
+	require.NoError(t, e.s.Poll(ctx))
+	e.now = e.now.Add(time.Minute)
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Equal(t, 1, e.t.portCalls, "a failed test also waits 10 minutes")
+	e.now = e.now.Add(10 * time.Minute)
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Equal(t, 2, e.t.portCalls)
+}
+
+func TestPortTestDoesNotBlockActions(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3})
+	e.t.portGate, e.t.inPort = make(chan struct{}), make(chan struct{})
+	done := make(chan error)
+	go func() { done <- e.s.Poll(ctx) }()
+	<-e.t.inPort
+	paused := make(chan error)
+	go func() { paused <- e.s.Pause(ctx, "h1") }()
+	select {
+	case err := <-paused:
+		assert.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Error("Pause waited for the port test")
+	}
+	close(e.t.portGate)
+	require.NoError(t, <-done)
+}
+
+func TestStuckAfterGrace(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.s.StallAfter = time.Minute
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Peers: 3, Sequential: true})
+	assert.Equal(t, "", e.get(t, "h1").Stuck, "just stalled: give it a minute")
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Equal(t, 0, e.t.portCalls)
+	e.now = e.now.Add(time.Minute)
+	assert.Equal(t, "in_order", e.get(t, "h1").Stuck)
+
+	// Moving again resets the clock.
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Peers: 3, PeersSending: 1, RateDownload: 10, Sequential: true})
+	assert.Equal(t, "", e.get(t, "h1").Stuck)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Peers: 3, Sequential: true})
+	e.now = e.now.Add(30 * time.Second)
+	assert.Equal(t, "", e.get(t, "h1").Stuck)
+}
+
+func TestNotStuckWhileChecking(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Checking: true})
+	assert.Equal(t, "", e.get(t, "h1").Stuck)
 }
