@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BatMichoo/media/internal/db/dbtest"
 	"github.com/BatMichoo/media/internal/db"
+	"github.com/BatMichoo/media/internal/db/dbtest"
 	"github.com/BatMichoo/media/internal/library"
 	"github.com/BatMichoo/media/internal/model"
 	"github.com/BatMichoo/media/internal/transmission"
