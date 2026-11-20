@@ -245,3 +245,20 @@ func TestSetPrefsPartial(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, Prefs{SubtitleLang: "off", AudioLang: "bul"}, p)
 }
+
+func TestPickTracksDefaultBulgarianText(t *testing.T) {
+	subs := []jellyfin.Track{{Index: 3, Lang: "eng"}, {Index: 4, Lang: "bul", Image: true}, {Index: 5, Lang: "bul"}}
+	s, _ := PickTracks(Prefs{}, subs, nil)
+	require.NotNil(t, s)
+	assert.Equal(t, 5, *s, "never chosen: Bulgarian text subtitles")
+
+	s, _ = PickTracks(Prefs{}, []jellyfin.Track{{Index: 4, Lang: "bul", Image: true}}, nil)
+	assert.Nil(t, s, "the default never burns in picture subtitles")
+
+	s, _ = PickTracks(Prefs{SubtitleLang: "off"}, subs, nil)
+	assert.Nil(t, s)
+
+	s, _ = PickTracks(Prefs{SubtitleLang: "bul"}, []jellyfin.Track{{Index: 4, Lang: "bul", Image: true}}, nil)
+	require.NotNil(t, s)
+	assert.Equal(t, 4, *s, "chosen Bulgarian may be a picture track")
+}

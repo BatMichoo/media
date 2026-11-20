@@ -190,6 +190,10 @@ func (s *Service) next(ctx context.Context, userID string, r Progress) (*Entry, 
 	return nil, nil
 }
 
+// DefaultSubtitleLang is the subtitle language for someone who hasn't
+// chosen one (Jellyfin's code for Bulgarian).
+const DefaultSubtitleLang = "bul"
+
 // Prefs is a person's languages.
 func (s *Service) Prefs(ctx context.Context, userID string) (Prefs, error) {
 	return s.store.GetPrefs(ctx, userID)
@@ -201,10 +205,22 @@ func (s *Service) SetPrefs(ctx context.Context, userID string, subtitleLang, aud
 }
 
 // PickTracks chooses tracks by a person's languages: a subtitle track in
-// their language (none when "off" or not set), and an audio track in
-// theirs (nil means Jellyfin's default).
+// their language (none when "off"; Bulgarian text subtitles when they
+// haven't chosen), and an audio track in theirs (nil means Jellyfin's
+// default).
 func PickTracks(p Prefs, subs, audio []jellyfin.Track) (sub *int, aud *int) {
-	if p.SubtitleLang != "" && p.SubtitleLang != "off" {
+	if p.SubtitleLang == "" {
+		// Never chosen: Bulgarian text subtitles. Picture ones would make
+		// the server convert the whole video, so only an explicit choice
+		// picks those.
+		for _, t := range subs {
+			if t.Lang == DefaultSubtitleLang && !t.Image {
+				i := t.Index
+				sub = &i
+				break
+			}
+		}
+	} else if p.SubtitleLang != "off" {
 		for _, t := range subs {
 			if t.Lang == p.SubtitleLang {
 				i := t.Index
