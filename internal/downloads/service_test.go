@@ -690,6 +690,27 @@ func TestEditDuringPollKeepsEdit(t *testing.T) {
 	assert.False(t, e.exists("library/Movies/Dune (2020)"))
 }
 
+func TestRunFinishesRoundOnShutdown(t *testing.T) {
+	// Shutting down while a round files a download lets it finish, so the
+	// links it makes are recorded (and can be undone later).
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	e.t.gate, e.t.inGet = make(chan struct{}), make(chan struct{})
+	gate := e.t.gate
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { e.s.Run(ctx, time.Hour); close(done) }()
+	<-e.t.inGet // the first round is inside its Transmission call
+	cancel()
+	close(gate)
+	<-done
+	assert.EqualValues(t, "filed", e.get(t, "h1").State)
+	links, err := e.s.store.Links(context.Background(), "h1")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"library/Movies/Dune (2021)/Dune (2021).mkv"}, links)
+}
+
 func TestPollAlreadyInLibrary(t *testing.T) {
 	e := newEnv(t)
 	e.addMovie(t, "a", "Dune", 2021)

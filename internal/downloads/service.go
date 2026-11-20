@@ -490,25 +490,34 @@ func (s *Service) Resume(ctx context.Context, hash string) error {
 	return s.store.UpdateDownload(ctx, r)
 }
 
+// roundTimeout bounds one background round. A round isn't cut short
+// when ctx ends (shutdown): filing makes links on disk and then records
+// them, and stopping between the two would leave links nobody can undo.
+const roundTimeout = 20 * time.Second
+
 // Run polls every interval until ctx ends, and checks new magnet links
-// for their file list every couple of seconds.
+// for their file list every couple of seconds. A round under way when
+// ctx ends is finished first.
 func (s *Service) Run(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	fast := time.NewTicker(2 * time.Second)
 	defer fast.Stop()
-	for {
-		if err := s.Poll(ctx); err != nil && ctx.Err() == nil {
+	round := func(f func(context.Context) error) {
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), roundTimeout)
+		defer cancel()
+		if err := f(rctx); err != nil {
 			s.Log.Printf("downloads: %v", err)
 		}
+	}
+	for {
+		round(s.Poll)
 		for waiting := true; waiting; {
 			select {
 			case <-ctx.Done():
 				return
 			case <-fast.C:
-				if err := s.CheckPending(ctx); err != nil && ctx.Err() == nil {
-					s.Log.Printf("downloads: %v", err)
-				}
+				round(s.CheckPending)
 			case <-t.C:
 				waiting = false
 			}

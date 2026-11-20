@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,11 +27,15 @@ import (
 	"github.com/BatMichoo/media/internal/watching"
 )
 
-func main() {
+func main() { os.Exit(run()) }
+
+// run is the app; it returns the exit code once the server and the
+// background work have stopped (main's os.Exit would skip defers).
+func run() int {
 	cfg, err := config.Load(os.Getenv)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "config:", err)
-		os.Exit(1)
+		return 1
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -38,7 +43,7 @@ func main() {
 	database, err := db.Open(ctx, cfg.DB)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
 	defer database.Close()
 
@@ -64,11 +69,22 @@ func main() {
 
 	dl := downloads.New(database, tr, jf, cfg.DataDir)
 	w := watching.New(database, jf)
-	go keepSetUp(ctx, jf, filepath.Join(cfg.DataDir, "library"))
-	go retry(ctx, "transmission settings", func(ctx context.Context) error {
-		return tr.ConfigureSession(ctx, filepath.Join(cfg.DataDir, "downloads"))
+	// The background work is waited for before the database closes, so a
+	// poll round filing a download finishes recording its links.
+	var workers sync.WaitGroup
+	defer workers.Wait()
+	defer stop() // runs first: ends the workers when the server fails
+	goWorker := func(f func()) {
+		workers.Add(1)
+		go func() { defer workers.Done(); f() }()
+	}
+	goWorker(func() { keepSetUp(ctx, jf, filepath.Join(cfg.DataDir, "library")) })
+	goWorker(func() {
+		retry(ctx, "transmission settings", func(ctx context.Context) error {
+			return tr.ConfigureSession(ctx, filepath.Join(cfg.DataDir, "downloads"))
+		})
 	})
-	go dl.Run(ctx, cfg.PollInterval)
+	goWorker(func() { dl.Run(ctx, cfg.PollInterval) })
 
 	router, err := handlers.NewWebRouter(handlers.Deps{
 		DB: database, Catalog: jf, Player: jf, Downloads: dl, Library: jf, Watching: w, Upstream: jf,
@@ -77,9 +93,9 @@ func main() {
 	})
 	if err != nil {
 		log.Print(err)
-		os.Exit(1)
+		return 1
 	}
-	os.Exit(serve(ctx, cfg, router))
+	return serve(ctx, cfg, router)
 }
 
 // keepSetUp sets Jellyfin up, and again whenever it stops being ready (its
