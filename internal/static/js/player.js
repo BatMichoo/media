@@ -410,6 +410,14 @@
       totalLabel.textContent = clock(duration());
     }
     video.addEventListener("loadedmetadata", showTime);
+    // The box takes the video's own shape, so a film wider than 16:9 isn't
+    // letterboxed inside it (a band above the picture, and one below under
+    // the controls). Kept between 4:3 and 2.76:1.
+    video.addEventListener("loadedmetadata", function () {
+      if (!video.videoWidth || !video.videoHeight) return;
+      var ratio = Math.min(2.76, Math.max(4 / 3, video.videoWidth / video.videoHeight));
+      root.style.setProperty("--video-ratio", ratio.toFixed(4));
+    });
     video.addEventListener("timeupdate", function () {
       showTime();
       if (!video.paused && Date.now() - lastSave >= 10000) save("progress");
