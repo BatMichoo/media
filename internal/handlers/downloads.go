@@ -12,6 +12,7 @@ import (
 
 	"github.com/BatMichoo/media/internal/downloads"
 	"github.com/BatMichoo/media/internal/i18n"
+	"github.com/BatMichoo/media/internal/subtitles"
 	"github.com/BatMichoo/theme"
 	"github.com/gin-gonic/gin"
 )
@@ -33,7 +34,11 @@ func (h *web) getAdd(c *gin.Context) {
 func errorText(l string, err error) string {
 	var in *downloads.InvalidError
 	if errors.As(err, &in) {
-		return i18n.T(l, in.Key)
+		msg := i18n.T(l, in.Key)
+		if in.Arg != "" && strings.Contains(msg, "%s") {
+			return fmt.Sprintf(msg, in.Arg)
+		}
+		return msg
 	}
 	log.Printf("downloads: %v", err)
 	return i18n.T(l, "error.generic")
@@ -51,7 +56,7 @@ func parseYear(s string) (int, bool) {
 
 func (h *web) postAdd(c *gin.Context) {
 	l := lang(c)
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxTorrent+64<<10)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxTorrent+downloads.MaxUploads*subtitles.MaxSize+64<<10)
 	f := addForm{Lang: l, Magnet: strings.TrimSpace(c.PostForm("magnet")), Kind: c.PostForm("kind"),
 		Title: c.PostForm("title"), Year: c.PostForm("year")}
 	fail := func(status int, msg string) {
@@ -84,8 +89,13 @@ func (h *web) postAdd(c *gin.Context) {
 		fail(http.StatusUnprocessableEntity, i18n.T(l, "error.year"))
 		return
 	}
-	_, _, err := h.d.Downloads.Add(c.Request.Context(), CurrentUser(c),
-		downloads.AddInput{Magnet: f.Magnet, File: file, Kind: f.Kind, Title: f.Title, Year: year})
+	subs, err := uploads(c, "subtitles", c.PostForm("subtitle_lang"))
+	if err != nil {
+		fail(http.StatusUnprocessableEntity, errorText(l, err))
+		return
+	}
+	_, _, err = h.d.Downloads.Add(c.Request.Context(), CurrentUser(c),
+		downloads.AddInput{Magnet: f.Magnet, File: file, Kind: f.Kind, Title: f.Title, Year: year, Subtitles: subs})
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, downloads.ErrInvalid) {
@@ -265,3 +275,31 @@ func (h *web) pauseOrResume(c *gin.Context, do func(ctx context.Context, hash st
 
 func (h *web) postPause(c *gin.Context)  { h.pauseOrResume(c, h.d.Downloads.Pause) }
 func (h *web) postResume(c *gin.Context) { h.pauseOrResume(c, h.d.Downloads.Resume) }
+
+// uploads reads the subtitle files sent in a form field, all in one
+// language; the downloads service checks them.
+func uploads(c *gin.Context, field, lang string) ([]downloads.Upload, error) {
+	if c.Request.MultipartForm == nil {
+		return nil, nil
+	}
+	var out []downloads.Upload
+	for _, fh := range c.Request.MultipartForm.File[field] {
+		if fh.Filename == "" && fh.Size == 0 {
+			continue // the field left empty
+		}
+		if fh.Size > subtitles.MaxSize {
+			return nil, &downloads.InvalidError{Key: "error.sub_size", Arg: fh.Filename}
+		}
+		r, err := fh.Open()
+		if err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(io.LimitReader(r, subtitles.MaxSize+1))
+		r.Close()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, downloads.Upload{Name: fh.Filename, Lang: lang, Data: data})
+	}
+	return out, nil
+}

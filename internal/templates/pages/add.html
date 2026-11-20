@@ -13,6 +13,12 @@
         <input type="file" id="torrent" name="torrent" accept=".torrent,application/x-bittorrent" />
       </div>
       {{ template "media/kind-title-year" . }}
+      <div>
+        <label for="subtitles">{{ t .Lang "add.subtitles" }}</label>
+        <input type="file" id="subtitles" name="subtitles" multiple accept=".srt,.ass,.ssa,.vtt" />
+        <small class="hint">{{ t .Lang "add.subtitles_hint" }}</small>
+      </div>
+      {{ template "media/subtitle-lang" . }}
       <div class="sheet-actions">
         <button type="submit" class="btn-primary sheet-save">{{ t .Lang "add.submit" }}</button>
       </div>
@@ -36,5 +42,16 @@
   <label for="year">{{ t .Lang "add.year" }}</label>
   <input type="text" id="year" name="year" value="{{ .Year }}" inputmode="numeric" maxlength="4" />
   <small class="hint">{{ t .Lang "add.year_hint" }}</small>
+</div>
+{{ end }}
+
+{{/* Subtitle language select (Bulgarian first). Input: anything with Lang. */}}
+{{ define "media/subtitle-lang" }}
+<div>
+  <label for="subtitle_lang">{{ t .Lang "subs.lang" }}</label>
+  <select id="subtitle_lang" name="subtitle_lang">
+    <option value="bg" selected>{{ t .Lang "lang.bg" }}</option>
+    <option value="en">{{ t .Lang "lang.en" }}</option>
+  </select>
 </div>
 {{ end }}

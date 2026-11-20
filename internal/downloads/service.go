@@ -101,7 +101,8 @@ type AddInput struct {
 	Magnet      string
 	File        []byte
 	Kind, Title string
-	Year        int // 0 = none (series only)
+	Year        int      // 0 = none (series only)
+	Subtitles   []Upload // kept with the download, linked in when it's filed
 }
 
 // Service is the downloads logic. Poll, Add, Edit and Remove take turns,
@@ -168,6 +169,13 @@ func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Downlo
 	if err != nil {
 		return Download{}, false, err
 	}
+	if len(in.Subtitles) > MaxUploads {
+		return Download{}, false, invalid("error.sub_count")
+	}
+	subs, err := prepareAll(in.Kind, in.Subtitles)
+	if err != nil {
+		return Download{}, false, err
+	}
 	hash, name, duplicate, err := s.t.Add(ctx, magnet, in.File, filepath.Join(s.dataDir, "downloads"))
 	if err != nil {
 		return Download{}, false, err
@@ -197,6 +205,9 @@ func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Downlo
 		}
 	}
 	if have, err := s.store.GetDownload(ctx, hash); err == nil {
+		if err := s.keepAll(ctx, have, subs); err != nil {
+			return Download{}, false, err
+		}
 		return fromRow(have), true, nil
 	} else if !errors.Is(err, db.ErrNotFound) {
 		return Download{}, false, err
@@ -204,6 +215,9 @@ func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Downlo
 	row := db.Download{Hash: hash, Kind: in.Kind, Title: title, Year: in.Year, Name: name,
 		AddedBy: user.ID, AddedByName: user.Name, State: "downloading"}
 	if err := s.store.InsertDownload(ctx, row); err != nil {
+		return Download{}, false, err
+	}
+	if err := s.keepAll(ctx, row, subs); err != nil {
 		return Download{}, false, err
 	}
 	row.AddedAt = s.Now()

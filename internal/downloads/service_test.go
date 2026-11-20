@@ -834,3 +834,55 @@ func TestLibrarySubtitleRejects(t *testing.T) {
 	err = e.s.LibrarySubtitle(context.Background(), "library/Movies/X/X.mkv", "movie", Upload{Name: "x.srt", Lang: "de", Data: []byte("x")})
 	assert.ErrorIs(t, err, ErrInvalid)
 }
+
+func TestAddWithSubtitles(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.t.nextHash = "h1"
+	_, _, err := e.s.Add(ctx, alice, AddInput{Magnet: "magnet:?xt=urn:btih:h1", Kind: "movie", Title: "Dune", Year: 2021,
+		Subtitles: []Upload{{Name: "dune.srt", Lang: "bg", Data: []byte("x")}}})
+	require.NoError(t, err)
+	assert.Len(t, e.subs(t, "h1"), 1)
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).bg.srt"))
+}
+
+func TestAddSeriesSubtitleWithoutCode(t *testing.T) {
+	e := newEnv(t)
+	e.t.nextHash = "h1"
+	_, _, err := e.s.Add(context.Background(), alice, AddInput{Magnet: "magnet:?xt=urn:btih:h1", Kind: "series", Title: "Show",
+		Subtitles: []Upload{{Name: "Show.S01E01.srt", Lang: "bg", Data: []byte("x")}, {Name: "x.srt", Lang: "bg", Data: []byte("x")}}})
+	var in *InvalidError
+	require.ErrorAs(t, err, &in)
+	assert.Equal(t, "error.sub_episode", in.Key)
+	assert.Equal(t, "x.srt", in.Arg)
+	assert.Equal(t, 0, e.t.adds, "nothing started")
+	list, _ := e.s.List(context.Background())
+	assert.Empty(t, list)
+}
+
+func TestAddSubtitlesToFiledDuplicate(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	e.t.nextHash = "h1"
+	_, existing, err := e.s.Add(ctx, alice, AddInput{Magnet: "magnet:?xt=urn:btih:h1", Kind: "movie", Title: "Dune", Year: 2021,
+		Subtitles: []Upload{{Name: "dune.srt", Lang: "en", Data: []byte("x")}}})
+	require.NoError(t, err)
+	assert.True(t, existing)
+	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).en.srt"), "placed right away")
+}
+
+func TestAddTooManySubtitles(t *testing.T) {
+	e := newEnv(t)
+	ups := make([]Upload, 31)
+	for i := range ups {
+		ups[i] = Upload{Name: "a.srt", Lang: "bg", Data: []byte("x")}
+	}
+	_, _, err := e.s.Add(context.Background(), alice, AddInput{Magnet: "magnet:?x", Kind: "movie", Title: "X", Year: 2000, Subtitles: ups})
+	assert.ErrorIs(t, err, ErrInvalid)
+	assert.Equal(t, 0, e.t.adds)
+}

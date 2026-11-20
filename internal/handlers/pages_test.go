@@ -434,3 +434,39 @@ func TestHeaderLeadsHome(t *testing.T) {
 	_, doc = a.get(t, "/movies", "HX-Request", "true", "HX-Target", "content")
 	assert.Equal(t, 0, doc.Find(".home-crumb").Length(), "fragments have no header")
 }
+
+func TestAddPageSubtitleField(t *testing.T) {
+	a := newApp(t)
+	_, doc := a.get(t, "/add")
+	assert.Equal(t, 1, doc.Find(`input[type=file][name=subtitles][multiple]`).Length())
+	assert.Equal(t, 1, doc.Find(`select[name=subtitle_lang] option[value=bg][selected]`).Length())
+	assert.Equal(t, 1, doc.Find(`select[name=subtitle_lang] option[value=en]`).Length())
+}
+
+func TestPostAddWithSubtitle(t *testing.T) {
+	a := newApp(t)
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	for k, v := range map[string]string{"magnet": "magnet:?xt=1", "kind": "movie", "title": "Dune", "year": "2021", "subtitle_lang": "bg"} {
+		require.NoError(t, mw.WriteField(k, v))
+	}
+	fw, err := mw.CreateFormFile("subtitles", "dune.srt")
+	require.NoError(t, err)
+	_, _ = fw.Write([]byte("1\n00:00:01,000 --> 00:00:02,000\nhi\n"))
+	require.NoError(t, mw.Close())
+	w, _ := a.postMultipart(t, "/add", &b, mw.FormDataContentType())
+	assert.Equal(t, 303, w.Code)
+	require.Len(t, a.dl.added, 1)
+	require.Len(t, a.dl.added[0].Subtitles, 1)
+	assert.Equal(t, "bg", a.dl.added[0].Subtitles[0].Lang)
+	assert.Equal(t, "dune.srt", a.dl.added[0].Subtitles[0].Name)
+}
+
+func TestAddSubtitleErrorNamesFile(t *testing.T) {
+	a := newApp(t)
+	a.dl.addErr = &downloads.InvalidError{Key: "error.sub_episode", Arg: "x.srt"}
+	body, ct := multipartAdd(t, map[string]string{"magnet": "magnet:?xt=1", "kind": "series", "title": "S"}, nil)
+	w, doc := a.postMultipart(t, "/add", body, ct)
+	assert.Equal(t, 422, w.Code)
+	assert.Contains(t, doc.Find(".form-error").Text(), "x.srt")
+}

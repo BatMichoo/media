@@ -26,6 +26,9 @@ type Upload struct {
 
 var subtitleLangs = map[string]bool{"bg": true, "en": true}
 
+// MaxUploads is the most subtitle files taken with one download.
+const MaxUploads = 30
+
 // prepared is an upload that passed the checks, as UTF-8.
 type prepared struct {
 	up   Upload
@@ -75,10 +78,62 @@ func (s *Service) storeUploads(ctx context.Context, hash, kind string, ups []Upl
 	if err != nil {
 		return err
 	}
+	return s.keepAll(ctx, db.Download{Hash: hash, Kind: kind}, ps)
+}
+
+// keepAll keeps checked uploads with a download; one that's already in
+// the library gets them linked in right away.
+func (s *Service) keepAll(ctx context.Context, d db.Download, ps []prepared) error {
+	if len(ps) == 0 {
+		return nil
+	}
+	var rows []db.Subtitle
 	for _, p := range ps {
-		if _, err := s.keep(ctx, kind, db.Subtitle{Hash: hash, Lang: p.up.Lang, Ext: p.ext, Name: p.up.Name}, p.data); err != nil {
+		row, err := s.keep(ctx, d.Kind, db.Subtitle{Hash: d.Hash, Lang: p.up.Lang, Ext: p.ext, Name: p.up.Name}, p.data)
+		if err != nil {
 			return err
 		}
+		rows = append(rows, row)
+	}
+	if d.State != "filed" {
+		return nil
+	}
+	return s.placeNow(ctx, d, rows)
+}
+
+// placeNow links kept uploads next to a filed download's videos (found
+// among the links it already made), replacing what's at those places.
+func (s *Service) placeNow(ctx context.Context, d db.Download, rows []db.Subtitle) error {
+	have, err := s.store.Links(ctx, d.Hash)
+	if err != nil {
+		return err
+	}
+	links := make([]library.Link, len(have))
+	for i, p := range have {
+		links[i] = library.Link{To: p}
+	}
+	out, _ := library.PlaceSubtitles(d.Kind, d.Hash, links, librarySubs(rows))
+	var made []string
+	for _, l := range out {
+		if !strings.HasPrefix(l.From, "subtitles/") {
+			continue // a link the download made earlier
+		}
+		dst := filepath.Join(s.dataDir, filepath.FromSlash(l.To))
+		if err := os.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		m, err := library.Apply(s.dataDir, []library.Link{l})
+		made = append(made, m...)
+		if err != nil {
+			_ = s.store.AddLinks(ctx, d.Hash, made)
+			return err
+		}
+	}
+	if err := s.store.AddLinks(ctx, d.Hash, made); err != nil {
+		return err
+	}
+	if len(made) > 0 {
+		s.refresh(ctx)
 	}
 	return nil
 }
