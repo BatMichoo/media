@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BatMichoo/media/internal/model"
+
 	"github.com/BatMichoo/media/internal/downloads"
 	"github.com/BatMichoo/media/internal/i18n"
 	"github.com/BatMichoo/media/internal/subtitles"
@@ -29,7 +31,7 @@ type addForm struct {
 }
 
 func (h *web) getAdd(c *gin.Context) {
-	h.render(c, http.StatusOK, "media/add", "add.title", addForm{Lang: lang(c), Kind: "movie"})
+	h.render(c, http.StatusOK, "media/add", "add.title", addForm{Lang: lang(c), Kind: string(model.KindMovie)})
 }
 
 // errorText is the translated message for a service error.
@@ -97,7 +99,7 @@ func (h *web) postAdd(c *gin.Context) {
 		return
 	}
 	_, _, err = h.d.Downloads.Add(c.Request.Context(), CurrentUser(c),
-		downloads.AddInput{Magnet: f.Magnet, File: file, Kind: f.Kind, Title: f.Title, Year: year, Subtitles: subs})
+		downloads.AddInput{Magnet: f.Magnet, File: file, Kind: model.Kind(f.Kind), Title: f.Title, Year: year, Subtitles: subs})
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, downloads.ErrInvalid) {
@@ -124,12 +126,7 @@ func (d downloadRow) Label() string {
 }
 
 // ShowStats is true while Transmission is downloading or seeding it.
-func (d downloadRow) ShowStats() bool {
-	if !d.Live || d.Paused {
-		return false
-	}
-	return d.State == "downloading" || (d.State == "filed" && !d.SeedingUntil.IsZero() && !d.SeedingDone)
-}
+func (d downloadRow) ShowStats() bool { return d.Live && d.Active() }
 
 // UpText is "↑ 410 kB/s · 1.3 GB up · ratio 0.26".
 func (d downloadRow) UpText() string {
@@ -161,11 +158,11 @@ func (d downloadRow) PeersText() string {
 func (d downloadRow) StuckText() string {
 	l := d.Lang
 	switch d.Stuck {
-	case "queued":
+	case downloads.StuckQueued:
 		return fmt.Sprintf(i18n.T(l, "stuck.queued"), d.QueuePos)
-	case "tracker":
+	case downloads.StuckTracker:
 		return fmt.Sprintf(i18n.T(l, "stuck.tracker"), d.TrackerError)
-	case "no_peers":
+	case downloads.StuckNoPeers:
 		text := i18n.T(l, "stuck.no_peers")
 		if d.Seeders >= 0 {
 			text = fmt.Sprintf(plural(l, "stuck.no_peers_seeders", d.Seeders), d.Seeders)
@@ -174,7 +171,7 @@ func (d downloadRow) StuckText() string {
 			text += ". " + fmt.Sprintf(i18n.T(l, "stuck.port_closed"), d.Port)
 		}
 		return text
-	case "in_order", "not_sending":
+	case downloads.StuckInOrder, downloads.StuckNotSending:
 		return fmt.Sprintf(plural(l, "stuck.not_sending", d.Peers), d.Peers)
 	}
 	return ""
@@ -247,7 +244,7 @@ func (h *web) getEdit(c *gin.Context) {
 	if d.Year > 0 {
 		year = strconv.Itoa(d.Year)
 	}
-	h.fragment(c, http.StatusOK, "media/edit-sheet", h.editData(c, d.Hash, d.Kind, d.Title, year, ""))
+	h.fragment(c, http.StatusOK, "media/edit-sheet", h.editData(c, d.Hash, string(d.Kind), d.Title, year, ""))
 }
 
 // sheetError shows a form again in the sheet, with its error.
@@ -272,7 +269,7 @@ func (h *web) postEdit(c *gin.Context) {
 		h.sheetError(c, "media/edit-sheet", h.editData(c, hash, kind, title, yearText, i18n.T(l, "error.year")))
 		return
 	}
-	err := h.d.Downloads.Edit(c.Request.Context(), hash, kind, title, year)
+	err := h.d.Downloads.Edit(c.Request.Context(), hash, model.Kind(kind), title, year)
 	switch {
 	case errors.Is(err, downloads.ErrNotFound):
 		c.Status(http.StatusNotFound)

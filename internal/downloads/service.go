@@ -76,11 +76,14 @@ type Store interface {
 
 // Download is a download as the pages show it.
 type Download struct {
-	Hash, Kind, Title string
+	Hash              string
+	Kind              model.Kind
+	Title             string
 	Year              int
 	Name, AddedByName string
 	AddedAt           time.Time
-	State, Reason     string
+	State             model.State
+	Reason            string
 	Percent           float64       // 0..1
 	RateDownload      int64         // bytes per second
 	Size, Done        int64         // bytes in all and so far (Size 0 = not known yet)
@@ -98,28 +101,42 @@ type Download struct {
 	QueuePos                     int // 1-based, while queued
 	TrackerError                 string
 
-	// Why a download isn't moving: "" (it is), "queued", "tracker",
-	// "no_peers", "in_order" or "not_sending".
-	Stuck      string
-	PortClosed bool // with "no_peers": the peer port can't be reached from outside
-	Port       int  // the peer port, for that note
+	Stuck      Stuck // why it isn't moving; "" when it is
+	PortClosed bool  // with StuckNoPeers: the peer port can't be reached from outside
+	Port       int   // the peer port, for that note
 }
 
-// CanPause is true while it downloads or seeds.
-func (d Download) CanPause() bool {
+// Stuck is why a download isn't moving.
+type Stuck string
+
+const (
+	StuckQueued     Stuck = "queued"      // waiting its turn in Transmission's queue
+	StuckTracker    Stuck = "tracker"     // the tracker reports an error
+	StuckNoPeers    Stuck = "no_peers"    // nobody to download from
+	StuckInOrder    Stuck = "in_order"    // peers, none sending, pieces asked for in order
+	StuckNotSending Stuck = "not_sending" // peers, none sending
+)
+
+// Active is true while Transmission downloads or seeds it (not paused).
+func (d Download) Active() bool {
 	if d.Paused {
 		return false
 	}
-	return d.State == "downloading" || (d.State == "filed" && !d.SeedingUntil.IsZero() && !d.SeedingDone)
+	return d.State == model.StateDownloading ||
+		(d.State == model.StateFiled && !d.SeedingUntil.IsZero() && !d.SeedingDone)
 }
+
+// CanPause is true while it downloads or seeds.
+func (d Download) CanPause() bool { return d.Active() }
 
 // AddInput is what the Add page sends: a magnet link or a torrent file.
 type AddInput struct {
-	Magnet      string
-	File        []byte
-	Kind, Title string
-	Year        int      // 0 = none (series only)
-	Subtitles   []Upload // kept with the download, linked in when it's filed
+	Magnet    string
+	File      []byte
+	Kind      model.Kind
+	Title     string
+	Year      int      // 0 = none (series only)
+	Subtitles []Upload // kept with the download, linked in when it's filed
 }
 
 // Service is the downloads logic. Poll, Add, Edit and Remove take turns,
@@ -161,8 +178,8 @@ func New(store Store, t Torrents, lib Library, dataDir string) *Service {
 const maxTitleBytes = 150
 
 // validate checks kind, title and year, and returns the cleaned title.
-func validate(kind, title string, year int) (string, error) {
-	if kind != "movie" && kind != "series" {
+func validate(kind model.Kind, title string, year int) (string, error) {
+	if !kind.Valid() {
 		return "", invalid("error.kind")
 	}
 	clean := library.CleanTitle(title)
@@ -174,7 +191,7 @@ func validate(kind, title string, year int) (string, error) {
 	if len(clean) > maxTitleBytes {
 		return "", invalid("error.title_long")
 	}
-	if kind == "movie" && year == 0 {
+	if kind == model.KindMovie && year == 0 {
 		return "", invalid("error.year_needed")
 	}
 	if year != 0 && (year < 1888 || year > 2100) {
@@ -249,7 +266,7 @@ func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Downlo
 		return Download{}, false, err
 	}
 	row := db.Download{Hash: hash, Kind: in.Kind, Title: title, Year: in.Year, Name: name,
-		AddedBy: user.ID, AddedByName: user.Name, State: "downloading", InOrder: true}
+		AddedBy: user.ID, AddedByName: user.Name, State: model.StateDownloading, InOrder: true}
 	if err := s.store.InsertDownload(ctx, row); err != nil {
 		return Download{}, false, err
 	}
@@ -297,7 +314,7 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 		out[i].Peers, out[i].PeersSending, out[i].Seeders = t.Peers, t.PeersSending, t.Seeders
 		out[i].QueuePos, out[i].TrackerError = queueRank(live, t), t.TrackerError
 		out[i].Stuck = s.stuck(out[i].Hash, stuckReason(out[i].State, out[i].Paused, t))
-		if out[i].Stuck == "no_peers" {
+		if out[i].Stuck == StuckNoPeers {
 			out[i].PortClosed, out[i].Port = s.portClosed()
 		}
 		if !t.DoneDate.IsZero() {
@@ -330,27 +347,27 @@ func queueRank(live map[string]transmission.Torrent, t transmission.Torrent) int
 
 // stuckReason is why a downloading torrent isn't moving, "" when it is
 // (or isn't downloading). See Download.Stuck.
-func stuckReason(state string, paused bool, t transmission.Torrent) string {
+func stuckReason(state model.State, paused bool, t transmission.Torrent) Stuck {
 	switch {
-	case state != "downloading" || paused || t.Stopped || t.Checking || t.PercentDone >= 1:
+	case state != model.StateDownloading || paused || t.Stopped || t.Checking || t.PercentDone >= 1:
 		return ""
 	case t.Queued:
-		return "queued"
+		return StuckQueued
 	case t.RateDownload > 0 || t.PeersSending > 0:
 		return ""
 	case t.TrackerError != "":
-		return "tracker"
+		return StuckTracker
 	case t.Peers == 0:
-		return "no_peers"
+		return StuckNoPeers
 	case t.Sequential:
-		return "in_order"
+		return StuckInOrder
 	}
-	return "not_sending"
+	return StuckNotSending
 }
 
 // stuck is reason once the download has been stalled for StallAfter, ""
 // before that: a just-started torrent often waits a moment for peers.
-func (s *Service) stuck(hash, reason string) string {
+func (s *Service) stuck(hash string, reason Stuck) Stuck {
 	s.liveMu.Lock()
 	defer s.liveMu.Unlock()
 	if reason == "" {
@@ -561,18 +578,18 @@ func (s *Service) poll(ctx context.Context) (noPeers bool, err error) {
 	var errs []error
 	for _, r := range rows {
 		t, ok := live[r.Hash]
-		if r.State == "downloading" {
+		if r.State == model.StateDownloading {
 			if err := s.check(ctx, r, t, ok); err != nil {
 				errs = append(errs, err)
 			}
 		}
-		if ok && r.State == "downloading" && len(t.Files) > 0 && t.PercentDone < 1 {
+		if ok && r.State == model.StateDownloading && len(t.Files) > 0 && t.PercentDone < 1 {
 			if err := s.selectFiles(ctx, t); err != nil {
 				errs = append(errs, fmt.Errorf("pick files %s: %w", r.Title, err))
 			}
 			delete(s.pending, r.Hash)
 		}
-		if ok && s.stuck(r.Hash, stuckReason(r.State, r.Paused, t)) == "no_peers" {
+		if ok && s.stuck(r.Hash, stuckReason(r.State, r.Paused, t)) == StuckNoPeers {
 			noPeers = true
 		}
 		if ok && t.PercentDone < 1 && !t.Sequential && r.InOrder {
@@ -622,7 +639,7 @@ func (s *Service) AnyOrder(ctx context.Context, hash string) error {
 func (s *Service) check(ctx context.Context, r db.Download, t transmission.Torrent, known bool) error {
 	switch {
 	case !known:
-		r.State, r.Reason = "failed", "removed from Transmission"
+		r.State, r.Reason = model.StateFailed, "removed from Transmission"
 		return s.store.UpdateDownload(ctx, r)
 	case t.LocalError || t.PercentDone < 1:
 		// A tracker warning shows but doesn't stop a finished download
@@ -640,7 +657,7 @@ func (s *Service) check(ctx context.Context, r db.Download, t transmission.Torre
 func (s *Service) file(ctx context.Context, r db.Download, t transmission.Torrent) error {
 	links, err := library.Plan(r.Kind, r.Title, r.Year, r.Hash, t.Files)
 	if err != nil {
-		r.State, r.Reason = "failed", err.Error()
+		r.State, r.Reason = model.StateFailed, err.Error()
 		return s.store.UpdateDownload(ctx, r)
 	}
 	subs, err := s.store.Subtitles(ctx, r.Hash)
@@ -654,12 +671,12 @@ func (s *Service) file(ctx context.Context, r db.Download, t transmission.Torren
 	}
 	switch {
 	case linkErr != nil:
-		r.State, r.Reason = "failed", linkErr.Error()
+		r.State, r.Reason = model.StateFailed, linkErr.Error()
 	case len(made) == 0:
 		// Every file was there already (another copy of the same thing).
-		r.State, r.Reason = "filed", "already in the library"
+		r.State, r.Reason = model.StateFiled, "already in the library"
 	default:
-		r.State, r.Reason = "filed", ""
+		r.State, r.Reason = model.StateFiled, ""
 	}
 	if linkErr == nil && unplaced > 0 {
 		r.Reason = unplacedText(unplaced)
@@ -725,7 +742,7 @@ func (s *Service) Remove(ctx context.Context, hash string, deleteFiles bool) err
 
 // Edit corrects kind, title and year. A filed (or failed) download is
 // filed again under the new details (nothing is downloaded again).
-func (s *Service) Edit(ctx context.Context, hash, kind, title string, year int) error {
+func (s *Service) Edit(ctx context.Context, hash string, kind model.Kind, title string, year int) error {
 	clean, err := validate(kind, title, year)
 	if err != nil {
 		return err
@@ -738,7 +755,7 @@ func (s *Service) Edit(ctx context.Context, hash, kind, title string, year int) 
 	}
 	// Filed ones are filed again under the new details; failed ones are
 	// tried again (e.g. after the media folder was fixed).
-	refile := r.State == "filed" || r.State == "failed"
+	refile := r.State == model.StateFiled || r.State == model.StateFailed
 	if refile {
 		links, err := s.store.Links(ctx, hash)
 		if err != nil {
@@ -750,7 +767,7 @@ func (s *Service) Edit(ctx context.Context, hash, kind, title string, year int) 
 		if err := s.store.DeleteLinks(ctx, hash); err != nil {
 			return err
 		}
-		r.State, r.Reason = "downloading", ""
+		r.State, r.Reason = model.StateDownloading, ""
 	}
 	r.Kind, r.Title, r.Year = kind, clean, year
 	if err := s.store.UpdateDownload(ctx, r); err != nil {

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BatMichoo/media/internal/model"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,7 +72,7 @@ func TestTarget(t *testing.T) {
 		{"series", "x.srt", "", false},
 	}
 	for _, c := range cases {
-		got, ok := Target(c.kind, c.name)
+		got, ok := Target(model.Kind(c.kind), c.name)
 		assert.Equal(t, c.ok, ok, c.name)
 		assert.Equal(t, c.want, got, c.name)
 	}

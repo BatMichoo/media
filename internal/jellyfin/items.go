@@ -12,6 +12,14 @@ import (
 
 const ticksPerSecond = 10_000_000
 
+// Item types, as Jellyfin names them (Item.Type, Latest's kind).
+const (
+	TypeMovie   = "Movie"
+	TypeSeries  = "Series"
+	TypeEpisode = "Episode"
+	TypeVideo   = "Video" // a movie's extra, or a movie Jellyfin files as a plain video
+)
+
 // Item is a movie, series, season, episode or extra.
 type Item struct {
 	ID, Type, Name, Path, Overview, SeriesID string
@@ -32,9 +40,9 @@ func (i Item) DisplayTitle() string {
 		return i.Name
 	}
 	switch i.Type {
-	case "Movie":
+	case TypeMovie:
 		return filepath.Base(filepath.Dir(i.Path))
-	case "Series":
+	case TypeSeries:
 		return filepath.Base(i.Path)
 	}
 	return i.Name
@@ -43,7 +51,7 @@ func (i Item) DisplayTitle() string {
 // ShowTitle is an episode's series title as typed when adding (the folder
 // under Shows/), else Jellyfin's series name; "" for anything else.
 func (i Item) ShowTitle() string {
-	if i.Type != "Episode" {
+	if i.Type != TypeEpisode {
 		return ""
 	}
 	p := filepath.ToSlash(i.Path)
@@ -91,7 +99,7 @@ func items(l []apiItem) []Item {
 
 const fields = "Path,Overview,DateCreated"
 
-// Latest lists movies ("Movie") or series ("Series"), newest added first.
+// Latest lists movies (TypeMovie) or series (TypeSeries), newest added first.
 // limit 0 means all.
 func (c *Client) Latest(ctx context.Context, kind string, limit int) ([]Item, error) {
 	q := url.Values{

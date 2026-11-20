@@ -255,11 +255,11 @@ func TestAddRecords(t *testing.T) {
 	assert.False(t, existing)
 	assert.Equal(t, "h1", d.Hash)
 	got := e.get(t, "h1")
-	assert.Equal(t, "movie", got.Kind)
+	assert.EqualValues(t, "movie", got.Kind)
 	assert.Equal(t, "Dune", got.Title)
 	assert.Equal(t, 2021, got.Year)
 	assert.Equal(t, "Alice", got.AddedByName)
-	assert.Equal(t, "downloading", got.State)
+	assert.EqualValues(t, "downloading", got.State)
 	assert.Equal(t, "Torrent h1", got.Name)
 }
 
@@ -302,13 +302,13 @@ func TestPollFilesMovie(t *testing.T) {
 	e := newEnv(t)
 	e.addMovie(t, "h1", "Dune", 2021)
 	require.NoError(t, e.s.Poll(context.Background()))
-	assert.Equal(t, "downloading", e.get(t, "h1").State)
+	assert.EqualValues(t, "downloading", e.get(t, "h1").State)
 	assert.Equal(t, 0, e.lib.refreshes)
 
 	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"), e.file(t, "h1", "D/Dune.en.srt"))
 	require.NoError(t, e.s.Poll(context.Background()))
 	d := e.get(t, "h1")
-	assert.Equal(t, "filed", d.State)
+	assert.EqualValues(t, "filed", d.State)
 	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).mkv"))
 	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).en.srt"))
 	links, err := e.s.store.Links(context.Background(), "h1")
@@ -327,7 +327,7 @@ func TestPollRemovedExternally(t *testing.T) {
 	delete(e.t.torrents, "h1")
 	require.NoError(t, e.s.Poll(context.Background()))
 	d := e.get(t, "h1")
-	assert.Equal(t, "failed", d.State)
+	assert.EqualValues(t, "failed", d.State)
 	assert.Equal(t, "removed from Transmission", d.Reason)
 }
 
@@ -337,7 +337,7 @@ func TestPollTransmissionError(t *testing.T) {
 	e.t.set(transmission.Torrent{Hash: "h1", Error: "No data found", LocalError: true})
 	require.NoError(t, e.s.Poll(context.Background()))
 	d := e.get(t, "h1")
-	assert.Equal(t, "downloading", d.State)
+	assert.EqualValues(t, "downloading", d.State)
 	assert.Equal(t, "No data found", d.Reason)
 }
 
@@ -347,7 +347,7 @@ func TestPollNoVideo(t *testing.T) {
 	e.finish(t, "h1", e.file(t, "h1", "D/readme.txt"))
 	require.NoError(t, e.s.Poll(context.Background()))
 	d := e.get(t, "h1")
-	assert.Equal(t, "failed", d.State)
+	assert.EqualValues(t, "failed", d.State)
 	assert.Equal(t, "no video files", d.Reason)
 	assert.Equal(t, 0, e.lib.refreshes)
 }
@@ -359,7 +359,7 @@ func TestPollLinkFailure(t *testing.T) {
 	e.finish(t, "h1", transmission.File{Name: "D/Dune.mkv", Length: 2 * GB})
 	require.NoError(t, e.s.Poll(context.Background()))
 	d := e.get(t, "h1")
-	assert.Equal(t, "failed", d.State)
+	assert.EqualValues(t, "failed", d.State)
 	assert.Contains(t, d.Reason, "link")
 }
 
@@ -373,7 +373,7 @@ func TestPollResumesAfterCrash(t *testing.T) {
 	require.NoError(t, err)
 	e.finish(t, "h1", f)
 	require.NoError(t, e.s.Poll(context.Background()))
-	assert.Equal(t, "filed", e.get(t, "h1").State)
+	assert.EqualValues(t, "filed", e.get(t, "h1").State)
 	links, err := e.s.store.Links(context.Background(), "h1")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"library/Movies/Dune (2021)/Dune (2021).mkv"}, links)
@@ -460,7 +460,7 @@ func TestPollFilesDespiteTrackerError(t *testing.T) {
 		Files: []transmission.File{e.file(t, "h1", "D/Dune.mkv")}}
 	e.t.set(tor)
 	require.NoError(t, e.s.Poll(context.Background()))
-	assert.Equal(t, "filed", e.get(t, "h1").State)
+	assert.EqualValues(t, "filed", e.get(t, "h1").State)
 }
 
 func TestEditRetriesFailed(t *testing.T) {
@@ -469,10 +469,10 @@ func TestEditRetriesFailed(t *testing.T) {
 	// Listed but not on disk yet: linking fails.
 	e.finish(t, "h1", transmission.File{Name: "D/Dune.mkv", Length: 2 * GB})
 	require.NoError(t, e.s.Poll(context.Background()))
-	require.Equal(t, "failed", e.get(t, "h1").State)
+	require.EqualValues(t, "failed", e.get(t, "h1").State)
 	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv")) // the cause is fixed
 	require.NoError(t, e.s.Edit(context.Background(), "h1", "movie", "Dune", 2021))
-	assert.Equal(t, "filed", e.get(t, "h1").State)
+	assert.EqualValues(t, "filed", e.get(t, "h1").State)
 	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).mkv"))
 }
 
@@ -508,7 +508,7 @@ func TestEditRefiles(t *testing.T) {
 	assert.False(t, e.exists("library/Movies/Dune (2020)"))
 	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).mkv"))
 	d := e.get(t, "h1")
-	assert.Equal(t, "filed", d.State)
+	assert.EqualValues(t, "filed", d.State)
 	assert.Equal(t, 2021, d.Year)
 	assert.Equal(t, adds, e.t.adds, "nothing downloaded again")
 	links, _ := e.s.store.Links(context.Background(), "h1")
@@ -520,9 +520,9 @@ func TestEditWhileDownloading(t *testing.T) {
 	e.addMovie(t, "h1", "Dune", 2020)
 	require.NoError(t, e.s.Edit(context.Background(), "h1", "series", "Dune Prophecy", 0))
 	d := e.get(t, "h1")
-	assert.Equal(t, "series", d.Kind)
+	assert.EqualValues(t, "series", d.Kind)
 	assert.Equal(t, "Dune Prophecy", d.Title)
-	assert.Equal(t, "downloading", d.State)
+	assert.EqualValues(t, "downloading", d.State)
 	assert.ErrorIs(t, e.s.Edit(context.Background(), "h1", "movie", "???", 2000), ErrInvalid)
 	assert.ErrorIs(t, e.s.Edit(context.Background(), "nope", "movie", "X", 2000), ErrNotFound)
 }
@@ -618,7 +618,7 @@ func TestPauseAndResumeDownloading(t *testing.T) {
 	assert.True(t, d.Paused)
 	assert.False(t, d.CanPause())
 	require.NoError(t, e.s.Poll(ctx))
-	assert.Equal(t, "downloading", e.get(t, "h1").State, "a paused download just waits")
+	assert.EqualValues(t, "downloading", e.get(t, "h1").State, "a paused download just waits")
 	assert.Empty(t, e.t.started, "the poll doesn't start it again")
 
 	require.NoError(t, e.s.Resume(ctx, "h1"))
@@ -634,7 +634,7 @@ func TestPauseSeeding(t *testing.T) {
 	e.addMovie(t, "h1", "Dune", 2021)
 	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 1, Files: []transmission.File{e.file(t, "h1", "d/d.mkv")}, DoneDate: e.now})
 	require.NoError(t, e.s.Poll(ctx))
-	require.Equal(t, "filed", e.get(t, "h1").State)
+	require.EqualValues(t, "filed", e.get(t, "h1").State)
 	assert.True(t, e.get(t, "h1").CanPause())
 
 	require.NoError(t, e.s.Pause(ctx, "h1"))
@@ -685,7 +685,7 @@ func TestEditDuringPollKeepsEdit(t *testing.T) {
 	require.NoError(t, <-edited)
 	d := e.get(t, "h1")
 	assert.Equal(t, 2021, d.Year)
-	assert.Equal(t, "filed", d.State)
+	assert.EqualValues(t, "filed", d.State)
 	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).mkv"))
 	assert.False(t, e.exists("library/Movies/Dune (2020)"))
 }
@@ -720,7 +720,7 @@ func TestPollAlreadyInLibrary(t *testing.T) {
 	e.finish(t, "b", e.file(t, "b", "Other/Dune.mkv"))
 	require.NoError(t, e.s.Poll(context.Background()))
 	d := e.get(t, "b")
-	assert.Equal(t, "filed", d.State)
+	assert.EqualValues(t, "filed", d.State)
 	assert.Equal(t, "already in the library", d.Reason)
 }
 
@@ -770,7 +770,7 @@ func TestFileSubtitles(t *testing.T) {
 	require.NoError(t, e.s.Poll(ctx))
 
 	d := e.get(t, "h1")
-	assert.Equal(t, "filed", d.State)
+	assert.EqualValues(t, "filed", d.State)
 	assert.Equal(t, "", d.Reason)
 	dst := "library/Movies/Dune (2021)/Dune (2021).bg.srt"
 	assert.Equal(t, "Привет", e.read(t, dst))
@@ -791,7 +791,7 @@ func TestFileSubtitleUnplaced(t *testing.T) {
 	e.finish(t, "h1", e.file(t, "h1", "Show.S01E01.mkv"))
 	require.NoError(t, e.s.Poll(ctx))
 	d := e.get(t, "h1")
-	assert.Equal(t, "filed", d.State)
+	assert.EqualValues(t, "filed", d.State)
 	assert.Contains(t, d.Reason, "1 subtitle")
 }
 
@@ -1034,7 +1034,7 @@ func TestRefileLeavesHandPlacedSubtitle(t *testing.T) {
 	require.NoError(t, os.WriteFile(dst, []byte("by hand"), 0o644))
 	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
 	require.NoError(t, e.s.Poll(ctx))
-	assert.Equal(t, "filed", e.get(t, "h1").State)
+	assert.EqualValues(t, "filed", e.get(t, "h1").State)
 	assert.Equal(t, "by hand", e.read(t, "library/Movies/Dune (2021)/Dune (2021).bg.srt"))
 }
 
@@ -1052,7 +1052,7 @@ func TestListStats(t *testing.T) {
 	assert.Equal(t, 8, d.PeersSending)
 	assert.Equal(t, 45, d.Seeders)
 	assert.True(t, d.InOrder, "in order by default")
-	assert.Equal(t, "", d.Stuck)
+	assert.EqualValues(t, "", d.Stuck)
 }
 
 func TestStuckReasons(t *testing.T) {
@@ -1079,7 +1079,7 @@ func TestStuckReasons(t *testing.T) {
 				e.t.set(c.t)
 			}
 			d := e.get(t, "h1")
-			assert.Equal(t, c.reason, d.Stuck)
+			assert.EqualValues(t, c.reason, d.Stuck)
 			if c.reason == "queued" {
 				assert.Equal(t, 1, d.QueuePos, "the only queued download is next")
 			}
@@ -1096,13 +1096,13 @@ func TestStuckOnlyWhileDownloading(t *testing.T) {
 	e.addMovie(t, "p", "Paused", 2021)
 	e.t.set(transmission.Torrent{Hash: "p", PercentDone: 0.3})
 	require.NoError(t, e.s.Pause(ctx, "p"))
-	assert.Equal(t, "", e.get(t, "p").Stuck)
+	assert.EqualValues(t, "", e.get(t, "p").Stuck)
 
 	e.addMovie(t, "f", "Filed", 2021)
 	e.t.set(transmission.Torrent{Hash: "f", PercentDone: 1, Files: []transmission.File{e.file(t, "f", "f/f.mkv")}, DoneDate: e.now})
 	require.NoError(t, e.s.Poll(ctx))
-	require.Equal(t, "filed", e.get(t, "f").State)
-	assert.Equal(t, "", e.get(t, "f").Stuck, "seeding with no peers isn't stuck")
+	require.EqualValues(t, "filed", e.get(t, "f").State)
+	assert.EqualValues(t, "", e.get(t, "f").Stuck, "seeding with no peers isn't stuck")
 }
 
 func TestAnyOrder(t *testing.T) {
@@ -1149,7 +1149,7 @@ func TestPortTestThrottled(t *testing.T) {
 	require.NoError(t, e.s.Poll(ctx))
 	assert.Equal(t, 1, e.t.portCalls)
 	d := e.get(t, "h1")
-	assert.Equal(t, "no_peers", d.Stuck)
+	assert.EqualValues(t, "no_peers", d.Stuck)
 	assert.True(t, d.PortClosed)
 	assert.Equal(t, 51413, d.Port)
 
@@ -1183,7 +1183,7 @@ func TestPortTestErrorIgnored(t *testing.T) {
 	e.t.portErr = errors.New("port-test failed")
 	assert.NoError(t, e.s.Poll(ctx), "a failed port test doesn't fail the poll")
 	d := e.get(t, "h1")
-	assert.Equal(t, "no_peers", d.Stuck)
+	assert.EqualValues(t, "no_peers", d.Stuck)
 	assert.False(t, d.PortClosed)
 }
 
@@ -1229,25 +1229,25 @@ func TestStuckAfterGrace(t *testing.T) {
 	e.s.StallAfter = time.Minute
 	e.addMovie(t, "h1", "Dune", 2021)
 	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Peers: 3, Sequential: true})
-	assert.Equal(t, "", e.get(t, "h1").Stuck, "just stalled: give it a minute")
+	assert.EqualValues(t, "", e.get(t, "h1").Stuck, "just stalled: give it a minute")
 	require.NoError(t, e.s.Poll(ctx))
 	assert.Equal(t, 0, e.t.portCalls)
 	e.now = e.now.Add(time.Minute)
-	assert.Equal(t, "in_order", e.get(t, "h1").Stuck)
+	assert.EqualValues(t, "in_order", e.get(t, "h1").Stuck)
 
 	// Moving again resets the clock.
 	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Peers: 3, PeersSending: 1, RateDownload: 10, Sequential: true})
-	assert.Equal(t, "", e.get(t, "h1").Stuck)
+	assert.EqualValues(t, "", e.get(t, "h1").Stuck)
 	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Peers: 3, Sequential: true})
 	e.now = e.now.Add(30 * time.Second)
-	assert.Equal(t, "", e.get(t, "h1").Stuck)
+	assert.EqualValues(t, "", e.get(t, "h1").Stuck)
 }
 
 func TestNotStuckWhileChecking(t *testing.T) {
 	e := newEnv(t)
 	e.addMovie(t, "h1", "Dune", 2021)
 	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Checking: true})
-	assert.Equal(t, "", e.get(t, "h1").Stuck)
+	assert.EqualValues(t, "", e.get(t, "h1").Stuck)
 }
 
 func TestQueuePosAmongOurs(t *testing.T) {

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/BatMichoo/media/internal/model"
+
 	"github.com/BatMichoo/media/internal/subtitles"
 	"github.com/BatMichoo/media/internal/transmission"
 )
@@ -89,10 +91,9 @@ func Wanted(tf transmission.File) bool {
 	return (f.isVideo() && !f.isSample()) || f.isSubtitle() || strings.EqualFold(ext, ".nfo")
 }
 
-// Plan says where each file of a finished torrent goes. kind is "movie"
-// or "series"; year 0 means none. dir is the torrent's own folder under
+// Plan says where each file of a finished torrent goes, by kind; year 0 means none. dir is the torrent's own folder under
 // downloads/ ("" for downloads/ itself); file names are relative to it.
-func Plan(kind, title string, year int, dir string, files []transmission.File) ([]Link, error) {
+func Plan(kind model.Kind, title string, year int, dir string, files []transmission.File) ([]Link, error) {
 	name := CleanTitle(title)
 	if name == "" {
 		return nil, errors.New("the title is empty")
@@ -115,9 +116,9 @@ func Plan(kind, title string, year int, dir string, files []transmission.File) (
 	}
 	folder := folderName(name, year)
 	switch kind {
-	case "movie":
+	case model.KindMovie:
 		return planMovie(path.Join("library/Movies", folder), folder, videos, subs), nil
-	case "series":
+	case model.KindSeries:
 		return planSeries(path.Join("library/Shows", folder), path.Join("downloads", dir), videos, subs, files), nil
 	}
 	return nil, fmt.Errorf("unknown kind %q", kind)

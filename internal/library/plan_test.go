@@ -3,6 +3,8 @@ package library
 import (
 	"testing"
 
+	"github.com/BatMichoo/media/internal/model"
+
 	"github.com/BatMichoo/media/internal/transmission"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +20,7 @@ func f(name string, size int64) transmission.File { return transmission.File{Nam
 func TestPlan(t *testing.T) {
 	cases := []struct {
 		name  string
-		kind  string
+		kind  model.Kind
 		title string
 		year  int
 		files []transmission.File
@@ -109,7 +111,7 @@ func TestPlan(t *testing.T) {
 }
 
 func TestPlanNoVideo(t *testing.T) {
-	for _, kind := range []string{"movie", "series"} {
+	for _, kind := range []model.Kind{model.KindMovie, model.KindSeries} {
 		_, err := Plan(kind, "X", 2000, "", []transmission.File{f("readme.txt", 1), f("s/sample.mkv", MB)})
 		assert.ErrorIs(t, err, ErrNoVideo, kind)
 	}

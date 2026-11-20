@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BatMichoo/media/internal/jellyfin"
+	"github.com/BatMichoo/media/internal/model"
+
 	"github.com/BatMichoo/media/internal/downloads"
 	"github.com/BatMichoo/media/internal/i18n"
 	"github.com/BatMichoo/media/internal/subtitles"
@@ -55,12 +58,13 @@ func (h *web) postSubtitles(c *gin.Context) {
 		h.unavailable(c, err)
 		return
 	}
-	var kind, back string
+	var kind model.Kind
+	var back string
 	switch it.Type {
-	case "Movie", "Video":
-		kind, back = "movie", "/movies/"+it.ID
-	case "Episode":
-		kind, back = "series", "/shows/"+it.SeriesID
+	case jellyfin.TypeMovie, jellyfin.TypeVideo:
+		kind, back = model.KindMovie, "/movies/"+it.ID
+	case jellyfin.TypeEpisode:
+		kind, back = model.KindSeries, "/shows/"+it.SeriesID
 		if it.SeriesID == "" {
 			back = "/"
 		}
@@ -76,7 +80,7 @@ func (h *web) postSubtitles(c *gin.Context) {
 		c.Redirect(http.StatusSeeOther, back+"?"+q.Encode())
 	}
 	src := it.Path
-	if n, err := strconv.Atoi(c.PostForm("part")); kind == "movie" && err == nil && n > 1 {
+	if n, err := strconv.Atoi(c.PostForm("part")); kind == model.KindMovie && err == nil && n > 1 {
 		parts, err := h.d.Catalog.Parts(ctx, it.ID)
 		if err != nil || n > len(parts) {
 			fail("error.generic", "")

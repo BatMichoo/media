@@ -100,11 +100,11 @@ type libSubCall struct {
 	Upload      downloads.Upload
 }
 
-func (f *fakeDownloads) LibrarySubtitle(_ context.Context, video, kind string, up downloads.Upload) error {
+func (f *fakeDownloads) LibrarySubtitle(_ context.Context, video string, kind model.Kind, up downloads.Upload) error {
 	if f.libSubErr != nil {
 		return f.libSubErr
 	}
-	f.libSubs = append(f.libSubs, libSubCall{video, kind, up})
+	f.libSubs = append(f.libSubs, libSubCall{video, string(kind), up})
 	return nil
 }
 
@@ -143,7 +143,7 @@ func (f *fakeDownloads) Remove(_ context.Context, hash string, del bool) error {
 	f.removed = append(f.removed, removeCall{hash, del})
 	return nil
 }
-func (f *fakeDownloads) Edit(_ context.Context, hash, kind, title string, year int) error {
+func (f *fakeDownloads) Edit(_ context.Context, hash string, kind model.Kind, title string, year int) error {
 	if f.editErr != nil {
 		return f.editErr
 	}

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BatMichoo/media/internal/model"
+
 	"github.com/BatMichoo/media/internal/db"
 	"github.com/BatMichoo/media/internal/library"
 	"github.com/BatMichoo/media/internal/subtitles"
@@ -56,7 +58,7 @@ func prepare(up Upload) (prepared, error) {
 
 // prepareAll checks every upload for a download of this kind before any
 // is kept: all or nothing.
-func prepareAll(kind string, ups []Upload) ([]prepared, error) {
+func prepareAll(kind model.Kind, ups []Upload) ([]prepared, error) {
 	out := make([]prepared, 0, len(ups))
 	for _, up := range ups {
 		p, err := prepare(up)
@@ -69,16 +71,6 @@ func prepareAll(kind string, ups []Upload) ([]prepared, error) {
 		out = append(out, p)
 	}
 	return out, nil
-}
-
-// storeUploads keeps uploads for a download (checked first, all or
-// nothing). They're linked into the library when it's filed.
-func (s *Service) storeUploads(ctx context.Context, hash, kind string, ups []Upload) error {
-	ps, err := prepareAll(kind, ups)
-	if err != nil {
-		return err
-	}
-	return s.keepAll(ctx, db.Download{Hash: hash, Kind: kind}, ps)
 }
 
 // keepAll keeps checked uploads with a download; one that's already in
@@ -95,7 +87,7 @@ func (s *Service) keepAll(ctx context.Context, d db.Download, ps []prepared) err
 		}
 		rows = append(rows, row)
 	}
-	if d.State != "filed" {
+	if d.State != model.StateFiled {
 		return nil
 	}
 	unplaced, err := s.placeNow(ctx, d, rows)
@@ -164,7 +156,7 @@ func (s *Service) clearPlace(ctx context.Context, hash, dst string) error {
 
 // keep writes an upload's file under subtitles/<hash>/ and records it,
 // first dropping an earlier upload for the same video and language.
-func (s *Service) keep(ctx context.Context, kind string, row db.Subtitle, data []byte) (db.Subtitle, error) {
+func (s *Service) keep(ctx context.Context, kind model.Kind, row db.Subtitle, data []byte) (db.Subtitle, error) {
 	have, err := s.store.Subtitles(ctx, row.Hash)
 	if err != nil {
 		return row, err
@@ -204,7 +196,7 @@ func (s *Service) forget(ctx context.Context, sub db.Subtitle) error {
 }
 
 // sameVideo is whether two uploads are for the same video.
-func sameVideo(kind string, a, b db.Subtitle) bool {
+func sameVideo(kind model.Kind, a, b db.Subtitle) bool {
 	if a.Video != "" || b.Video != "" {
 		return a.Video == b.Video
 	}
@@ -217,7 +209,7 @@ func sameVideo(kind string, a, b db.Subtitle) bool {
 // the library (video: its path relative to the data folder), named after
 // it. When a download made that video the upload is kept with it, so it
 // survives re-filing; a video put there by hand just gets the file.
-func (s *Service) LibrarySubtitle(ctx context.Context, video, kind string, up Upload) error {
+func (s *Service) LibrarySubtitle(ctx context.Context, video string, kind model.Kind, up Upload) error {
 	p, err := prepare(up)
 	if err != nil {
 		return err
@@ -258,9 +250,9 @@ func (s *Service) LibrarySubtitle(ctx context.Context, video, kind string, up Up
 // standIn is the name that says which video a library upload is for, so
 // re-filing finds it again: an episode code, "movie.partN" or "movie";
 // "" for an episode whose file name has no code (it's pinned instead).
-func standIn(kind, video string) string {
+func standIn(kind model.Kind, video string) string {
 	base := path.Base(video)
-	if kind == "series" {
+	if kind == model.KindSeries {
 		code, _ := subtitles.EpisodeCode(base)
 		return code
 	}

@@ -70,7 +70,7 @@ func (h *web) watch(c *gin.Context) {
 	}
 	parts := []partView{{ID: it.ID, Duration: it.RunTimeSeconds}}
 	switch it.Type {
-	case "Movie":
+	case jellyfin.TypeMovie:
 		v.Back = "/movies/" + it.ID
 		if ps, err := h.d.Catalog.Parts(ctx, it.ID); err == nil && len(ps) > 0 {
 			parts = parts[:0]
@@ -78,7 +78,7 @@ func (h *web) watch(c *gin.Context) {
 				parts = append(parts, partView{ID: p.ID, Duration: p.RunTimeSeconds})
 			}
 		}
-	case "Episode":
+	case jellyfin.TypeEpisode:
 		v.Series = it.SeriesID
 		v.Title = it.ShowTitle() + " · " + it.Name
 		if it.SeriesID != "" {

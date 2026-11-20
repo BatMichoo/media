@@ -14,6 +14,8 @@ import (
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/BatMichoo/media/internal/model"
 )
 
 // MaxSize is the largest subtitle file accepted.
@@ -130,8 +132,8 @@ func PartNumber(stem string) (int, bool) {
 // Target is which video a subtitle with this name belongs to: for a
 // movie "partN" (with a part marker) or "" (the main video, always ok);
 // for a series its episode code, not ok without one.
-func Target(kind, name string) (string, bool) {
-	if kind == "series" {
+func Target(kind model.Kind, name string) (string, bool) {
+	if kind == model.KindSeries {
 		return EpisodeCode(name)
 	}
 	if n, ok := PartNumber(name); ok {

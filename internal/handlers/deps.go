@@ -31,12 +31,12 @@ type Downloads interface {
 	Add(ctx context.Context, user model.User, in downloads.AddInput) (downloads.Download, bool, error)
 	List(ctx context.Context) ([]downloads.Download, error)
 	Remove(ctx context.Context, hash string, deleteFiles bool) error
-	Edit(ctx context.Context, hash, kind, title string, year int) error
+	Edit(ctx context.Context, hash string, kind model.Kind, title string, year int) error
 	Pause(ctx context.Context, hash string) error
 	Resume(ctx context.Context, hash string) error
 	StartNow(ctx context.Context, hash string) error
 	AnyOrder(ctx context.Context, hash string) error
-	LibrarySubtitle(ctx context.Context, video, kind string, up downloads.Upload) error
+	LibrarySubtitle(ctx context.Context, video string, kind model.Kind, up downloads.Upload) error
 }
 
 // Library is asking Jellyfin to look at new files.

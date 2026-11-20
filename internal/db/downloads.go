@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/BatMichoo/media/internal/model"
 )
 
 // ErrNotFound means there's no such row.
@@ -12,12 +14,15 @@ var ErrNotFound = errors.New("not found")
 
 // Download is a row of downloads: a torrent added through the app.
 type Download struct {
-	Hash, Kind, Title    string
+	Hash                 string
+	Kind                 model.Kind
+	Title                string
 	Year                 int // 0 = none
 	Name                 string
 	AddedBy, AddedByName string
 	AddedAt              time.Time
-	State, Reason        string
+	State                model.State
+	Reason               string
 	Paused               bool // paused in the app
 	InOrder              bool // downloads its pieces in order (new rows: true)
 }

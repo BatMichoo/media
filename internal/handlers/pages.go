@@ -41,9 +41,9 @@ func hue(s string) int {
 // posterOf is the 2:3 poster for it: its own, or an episode's series'.
 func posterOf(it jellyfin.Item) string {
 	switch {
-	case it.Type == "Episode" && it.HasSeriesPrimary && it.SeriesID != "":
+	case it.Type == jellyfin.TypeEpisode && it.HasSeriesPrimary && it.SeriesID != "":
 		return poster(it.SeriesID)
-	case it.Type != "Episode" && it.HasPrimary:
+	case it.Type != jellyfin.TypeEpisode && it.HasPrimary:
 		return poster(it.ID)
 	}
 	return ""
@@ -52,11 +52,11 @@ func posterOf(it jellyfin.Item) string {
 // stillOf is a 16:9 picture for it: an episode's frame, a backdrop, else "".
 func stillOf(it jellyfin.Item) string {
 	switch {
-	case it.Type == "Episode" && it.HasPrimary:
+	case it.Type == jellyfin.TypeEpisode && it.HasPrimary:
 		return image(it.ID, "Primary", 480)
 	case it.HasBackdrop:
 		return image(it.ID, "Backdrop", 480)
-	case it.Type == "Video" && it.HasPrimary: // an extra
+	case it.Type == jellyfin.TypeVideo && it.HasPrimary: // an extra
 		return image(it.ID, "Primary", 480)
 	}
 	return ""
@@ -65,9 +65,9 @@ func stillOf(it jellyfin.Item) string {
 func itemCard(it jellyfin.Item) card {
 	c := card{Image: posterOf(it), Title: it.DisplayTitle()}
 	switch it.Type {
-	case "Series":
+	case jellyfin.TypeSeries:
 		c.Href = "/shows/" + it.ID
-	case "Episode":
+	case jellyfin.TypeEpisode:
 		c.Href = "/watch/" + it.ID
 		c.Title = it.ShowTitle()
 		c.Sub = fmt.Sprintf("S%d · E%d · %s", it.ParentIndex, it.Index, it.Name)
@@ -119,11 +119,11 @@ func (h *web) home(c *gin.Context) {
 			}
 			v.Continue = append(v.Continue, cd)
 		}
-		movies, err := h.d.Catalog.Latest(ctx, "Movie", rowSize)
+		movies, err := h.d.Catalog.Latest(ctx, jellyfin.TypeMovie, rowSize)
 		if err != nil {
 			return err
 		}
-		shows, err := h.d.Catalog.Latest(ctx, "Series", rowSize)
+		shows, err := h.d.Catalog.Latest(ctx, jellyfin.TypeSeries, rowSize)
 		if err != nil {
 			return err
 		}
@@ -169,8 +169,8 @@ func (h *web) grid(c *gin.Context, kind, headingKey, emptyKey string) {
 	h.render(c, http.StatusOK, "media/grid", headingKey, v)
 }
 
-func (h *web) movies(c *gin.Context) { h.grid(c, "Movie", "home.movies", "empty.movies") }
-func (h *web) shows(c *gin.Context)  { h.grid(c, "Series", "home.shows", "empty.shows") }
+func (h *web) movies(c *gin.Context) { h.grid(c, jellyfin.TypeMovie, "home.movies", "empty.movies") }
+func (h *web) shows(c *gin.Context)  { h.grid(c, jellyfin.TypeSeries, "home.shows", "empty.shows") }
 
 type movieView struct {
 	Lang        string
@@ -191,7 +191,7 @@ type movieView struct {
 func (h *web) movie(c *gin.Context) {
 	ctx := c.Request.Context()
 	it, err := h.d.Catalog.Item(ctx, c.Param("id"))
-	if isNotFound(err) || (err == nil && it.Type != "Movie" && it.Type != "Video") {
+	if isNotFound(err) || (err == nil && it.Type != jellyfin.TypeMovie && it.Type != jellyfin.TypeVideo) {
 		h.notFound(c)
 		return
 	}
@@ -274,7 +274,7 @@ func (h *web) show(c *gin.Context) {
 	ctx := c.Request.Context()
 	l := lang(c)
 	it, err := h.d.Catalog.Item(ctx, c.Param("id"))
-	if isNotFound(err) || (err == nil && it.Type != "Series") {
+	if isNotFound(err) || (err == nil && it.Type != jellyfin.TypeSeries) {
 		h.notFound(c)
 		return
 	}

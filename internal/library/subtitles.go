@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/BatMichoo/media/internal/model"
+
 	"github.com/BatMichoo/media/internal/subtitles"
 )
 
@@ -27,7 +29,7 @@ var partSuffix = regexp.MustCompile(` - part(\d+)$`)
 // ("Dune (2021).bg.srt"). An upload takes the place of a torrent's own
 // subtitle of the same name; of two uploads for the same place the later
 // one wins. unplaced counts the uploads no video matched.
-func PlaceSubtitles(kind, hash string, links []Link, subs []Subtitle) (out []Link, unplaced int) {
+func PlaceSubtitles(kind model.Kind, hash string, links []Link, subs []Subtitle) (out []Link, unplaced int) {
 	var videos []Link
 	for _, l := range links {
 		if videoExt[strings.ToLower(path.Ext(l.To))] {
@@ -61,7 +63,7 @@ func PlaceSubtitles(kind, hash string, links []Link, subs []Subtitle) (out []Lin
 }
 
 // videoFor finds the video link a subtitle belongs to.
-func videoFor(kind string, s Subtitle, videos []Link) (Link, bool) {
+func videoFor(kind model.Kind, s Subtitle, videos []Link) (Link, bool) {
 	if s.Video != "" {
 		for _, v := range videos {
 			if v.To == s.Video {
@@ -74,7 +76,7 @@ func videoFor(kind string, s Subtitle, videos []Link) (Link, bool) {
 	if !ok {
 		return Link{}, false
 	}
-	if kind == "series" {
+	if kind == model.KindSeries {
 		best, found := Link{}, false
 		for _, v := range videos {
 			if code, ok := subtitles.EpisodeCode(path.Base(v.To)); ok && code == target {
