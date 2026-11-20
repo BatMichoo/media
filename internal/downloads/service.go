@@ -301,6 +301,16 @@ func fromRow(r db.Download) Download {
 		InOrder: r.InOrder, Seeders: -1}
 }
 
+// Get is one download as recorded, without Transmission's live progress;
+// ErrNotFound if there's none.
+func (s *Service) Get(ctx context.Context, hash string) (Download, error) {
+	r, err := s.row(ctx, hash)
+	if err != nil {
+		return Download{}, err
+	}
+	return fromRow(r), nil
+}
+
 // List is every download, newest first, with live progress from
 // Transmission. When Transmission can't be reached it still lists them
 // (without progress) and returns that error too.

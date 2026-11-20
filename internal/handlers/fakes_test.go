@@ -139,6 +139,14 @@ func (f *fakeDownloads) Add(_ context.Context, u model.User, in downloads.AddInp
 	return downloads.Download{Hash: "h1", Title: in.Title}, false, nil
 }
 func (f *fakeDownloads) List(context.Context) ([]downloads.Download, error) { return f.list, f.listErr }
+func (f *fakeDownloads) Get(_ context.Context, hash string) (downloads.Download, error) {
+	for _, d := range f.list {
+		if d.Hash == hash {
+			return d, nil
+		}
+	}
+	return downloads.Download{}, downloads.ErrNotFound
+}
 func (f *fakeDownloads) Remove(_ context.Context, hash string, del bool) error {
 	f.removed = append(f.removed, removeCall{hash, del})
 	return nil

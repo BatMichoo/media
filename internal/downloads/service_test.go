@@ -1280,3 +1280,14 @@ func TestAnyOrderSavedEvenIfTransmissionFails(t *testing.T) {
 	require.NoError(t, e.s.Poll(ctx))
 	assert.Empty(t, e.t.seq)
 }
+
+func TestGet(t *testing.T) {
+	e := newEnv(t)
+	e.addMovie(t, "h1", "Dune", 2021)
+	d, err := e.s.Get(context.Background(), "h1")
+	require.NoError(t, err)
+	assert.Equal(t, "Dune", d.Title)
+	assert.Equal(t, 2021, d.Year)
+	_, err = e.s.Get(context.Background(), "nope")
+	assert.ErrorIs(t, err, ErrNotFound)
+}

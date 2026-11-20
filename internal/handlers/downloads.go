@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/BatMichoo/media/internal/model"
 	"io"
 	"log"
 	"math"
 	"net/http"
 	"strconv"
 	"strings"
-
-	"github.com/BatMichoo/media/internal/model"
 
 	"github.com/BatMichoo/media/internal/downloads"
 	"github.com/BatMichoo/media/internal/i18n"
@@ -209,15 +208,13 @@ func (h *web) downloadsList(c *gin.Context) {
 	h.fragment(c, http.StatusOK, "media/downloads-list", h.downloadsData(c))
 }
 
-// find is one download by hash, from the list.
+// find is the download named in the path (its record, no live stats).
 func (h *web) find(c *gin.Context) (downloads.Download, bool) {
-	list, _ := h.d.Downloads.List(c.Request.Context())
-	for _, d := range list {
-		if d.Hash == c.Param("hash") {
-			return d, true
-		}
+	d, err := h.d.Downloads.Get(c.Request.Context(), c.Param("hash"))
+	if err != nil && !errors.Is(err, downloads.ErrNotFound) {
+		log.Printf("download %s: %v", c.Param("hash"), err)
 	}
-	return downloads.Download{}, false
+	return d, err == nil
 }
 
 type editView struct {

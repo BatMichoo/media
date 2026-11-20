@@ -30,6 +30,7 @@ type Player interface {
 type Downloads interface {
 	Add(ctx context.Context, user model.User, in downloads.AddInput) (downloads.Download, bool, error)
 	List(ctx context.Context) ([]downloads.Download, error)
+	Get(ctx context.Context, hash string) (downloads.Download, error)
 	Remove(ctx context.Context, hash string, deleteFiles bool) error
 	Edit(ctx context.Context, hash string, kind model.Kind, title string, year int) error
 	Pause(ctx context.Context, hash string) error
