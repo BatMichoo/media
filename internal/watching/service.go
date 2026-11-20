@@ -14,11 +14,19 @@ import (
 )
 
 // Progress is where a person is in one item.
-type Progress = db.Progress
+type Progress struct {
+	ItemID, SeriesID string
+	Part             int     // 0-based part of a multi-part movie
+	Position         float64 // seconds within that part
+	Duration         float64 // seconds, the whole item
+	Watched          float64 // seconds watched: earlier parts plus Position
+	Finished         bool
+	UpdatedAt        time.Time
+}
 
 // Prefs is a person's subtitle and audio language ("" none yet; for
 // subtitles "off" means off).
-type Prefs = db.Prefs
+type Prefs struct{ SubtitleLang, AudioLang string }
 
 // FinishedAt is the share of an item after which it counts as watched.
 const FinishedAt = 0.9
@@ -82,12 +90,13 @@ func (s *Service) Save(ctx context.Context, userID string, in SaveInput) (Progre
 		ItemID: in.ItemID, SeriesID: in.SeriesID, Part: in.Part, Position: in.Position, Duration: total, Watched: watched,
 		Finished: total > 0 && watched >= FinishedAt*total, UpdatedAt: s.Now(),
 	}
-	return p, s.store.SaveProgress(ctx, userID, p)
+	return p, s.store.SaveProgress(ctx, userID, db.Progress(p))
 }
 
 // Get is a person's place in an item; ok is false if none.
 func (s *Service) Get(ctx context.Context, userID, itemID string) (Progress, bool, error) {
-	return s.store.GetProgress(ctx, userID, itemID)
+	p, ok, err := s.store.GetProgress(ctx, userID, itemID)
+	return Progress(p), ok, err
 }
 
 // Many is a person's places in these items, by item id.
@@ -98,7 +107,7 @@ func (s *Service) Many(ctx context.Context, userID string, itemIDs []string) (ma
 	}
 	out := make(map[string]Progress, len(rows))
 	for _, p := range rows {
-		out[p.ItemID] = p
+		out[p.ItemID] = Progress(p)
 	}
 	return out, nil
 }
@@ -128,11 +137,11 @@ func (s *Service) Continue(ctx context.Context, userID string, limit int) ([]Ent
 	}
 	var out []Entry
 	seenSeries := map[string]bool{}
-	for _, r := range rows {
+	for _, row := range rows {
 		if len(out) >= limit {
 			break
 		}
-		r := r
+		r := Progress(row)
 		if r.SeriesID != "" {
 			if seenSeries[r.SeriesID] {
 				continue
@@ -175,7 +184,8 @@ func (s *Service) next(ctx context.Context, userID string, r Progress) (*Entry, 
 			continue
 		}
 		n := eps[i+1]
-		p, ok, err := s.store.GetProgress(ctx, userID, n.ID)
+		row, ok, err := s.store.GetProgress(ctx, userID, n.ID)
+		p := Progress(row)
 		if err != nil {
 			return nil, err
 		}
@@ -196,7 +206,8 @@ const DefaultSubtitleLang = "bul"
 
 // Prefs is a person's languages.
 func (s *Service) Prefs(ctx context.Context, userID string) (Prefs, error) {
-	return s.store.GetPrefs(ctx, userID)
+	p, err := s.store.GetPrefs(ctx, userID)
+	return Prefs(p), err
 }
 
 // SetPrefs saves the languages that aren't nil.

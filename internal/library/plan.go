@@ -8,19 +8,24 @@ package library
 import (
 	"errors"
 	"fmt"
+	"github.com/BatMichoo/media/internal/model"
 	"path"
 	"sort"
 	"strings"
 	"unicode"
 
-	"github.com/BatMichoo/media/internal/model"
-
 	"github.com/BatMichoo/media/internal/subtitles"
-	"github.com/BatMichoo/media/internal/transmission"
 )
 
 // ErrNoVideo means a torrent has no video files to file.
 var ErrNoVideo = errors.New("no video files")
+
+// File is one file of a torrent: its name relative to the torrent's
+// folder, and its size in bytes.
+type File struct {
+	Name   string
+	Length int64
+}
 
 // Link is one hard link to make: From (under downloads/) to To (under
 // library/), both relative to the data folder.
@@ -63,7 +68,7 @@ type file struct {
 	size int64
 }
 
-func newFile(dir string, tf transmission.File) (file, error) {
+func newFile(dir string, tf File) (file, error) {
 	root := path.Join("downloads", dir)
 	from := path.Join(root, tf.Name)
 	if !strings.HasPrefix(from, root+"/") || path.IsAbs(tf.Name) || path.Clean(tf.Name) == ".." || strings.HasPrefix(path.Clean(tf.Name), "../") {
@@ -84,16 +89,16 @@ func (f file) isSample() bool {
 // Wanted says whether a torrent's file is worth downloading: videos
 // (not samples), their subtitles and .nfo descriptions. Everything else,
 // programs and archives above all, is left out.
-func Wanted(tf transmission.File) bool {
+func Wanted(tf File) bool {
 	base := path.Base(tf.Name)
 	ext := path.Ext(base)
 	f := file{rel: tf.Name, base: base, ext: ext, size: tf.Length}
 	return (f.isVideo() && !f.isSample()) || f.isSubtitle() || strings.EqualFold(ext, ".nfo")
 }
 
-// Plan says where each file of a finished torrent goes, by kind; year 0 means none. dir is the torrent's own folder under
-// downloads/ ("" for downloads/ itself); file names are relative to it.
-func Plan(kind model.Kind, title string, year int, dir string, files []transmission.File) ([]Link, error) {
+// Plan says where each file of a finished torrent goes, by kind; year 0
+// means none. dir is the torrent's own folder under downloads/ ("" for downloads/ itself); file names are relative to it.
+func Plan(kind model.Kind, title string, year int, dir string, files []File) ([]Link, error) {
 	name := CleanTitle(title)
 	if name == "" {
 		return nil, errors.New("the title is empty")
@@ -222,7 +227,7 @@ func matchSubtitle(s file, videos []placed) (placed, string, bool) {
 
 // planSeries links every video and subtitle into the show's folder,
 // keeping the torrent's own paths; Jellyfin reads S01E02 from the names.
-func planSeries(dir, root string, videos, subs []file, all []transmission.File) []Link {
+func planSeries(dir, root string, videos, subs []file, all []File) []Link {
 	keep := map[string]bool{}
 	for _, f := range append(append([]file{}, videos...), subs...) {
 		keep[f.rel] = true

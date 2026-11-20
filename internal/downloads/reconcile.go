@@ -34,7 +34,7 @@ func setKey(r *db.Download, key string, n int) { r.Reason, r.ReasonKey, r.Reason
 func (s *Service) selectFiles(ctx context.Context, t transmission.Torrent) error {
 	var want, skip []int
 	for i, f := range t.Files {
-		switch w := library.Wanted(f); {
+		switch w := library.Wanted(libraryFile(f)); {
 		case w && !f.Wanted:
 			want = append(want, i)
 		case !w && f.Wanted:
@@ -203,7 +203,7 @@ func (s *Service) check(ctx context.Context, r db.Download, t transmission.Torre
 
 // file links a finished torrent into the library and records the links.
 func (s *Service) file(ctx context.Context, r db.Download, t transmission.Torrent) error {
-	links, err := library.Plan(r.Kind, r.Title, r.Year, r.Hash, t.Files)
+	links, err := library.Plan(r.Kind, r.Title, r.Year, r.Hash, libraryFiles(t.Files))
 	if err != nil {
 		r.State = model.StateFailed
 		if errors.Is(err, library.ErrNoVideo) {
@@ -256,4 +256,16 @@ func (s *Service) refresh(ctx context.Context) {
 	if err := s.lib.Refresh(ctx); err != nil {
 		s.Log.Printf("downloads: library rescan: %v", err)
 	}
+}
+
+func libraryFile(f transmission.File) library.File {
+	return library.File{Name: f.Name, Length: f.Length}
+}
+
+func libraryFiles(fs []transmission.File) []library.File {
+	out := make([]library.File, len(fs))
+	for i, f := range fs {
+		out[i] = libraryFile(f)
+	}
+	return out
 }
