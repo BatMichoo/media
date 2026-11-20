@@ -9,12 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"path"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode"
 
+	"github.com/BatMichoo/media/internal/subtitles"
 	"github.com/BatMichoo/media/internal/transmission"
 )
 
@@ -28,7 +27,6 @@ type Link struct{ From, To string }
 var (
 	videoExt    = map[string]bool{".mkv": true, ".mp4": true, ".m4v": true, ".avi": true, ".mov": true, ".webm": true, ".ts": true}
 	subtitleExt = map[string]bool{".srt": true, ".ass": true, ".ssa": true, ".vtt": true, ".sub": true, ".idx": true}
-	partMarker  = regexp.MustCompile(`(?i)[ ._-](cd|part|pt|disc|disk)[ ._-]?(\d+)`)
 )
 
 const sampleMax = 200 << 20
@@ -180,12 +178,11 @@ func numberedParts(videos []file) (parts, rest []file, ok bool) {
 	}
 	var ns []numbered
 	for _, f := range videos {
-		m := partMarker.FindStringSubmatch(f.stem)
-		if m == nil {
+		n, ok := subtitles.PartNumber(f.stem)
+		if !ok {
 			rest = append(rest, f)
 			continue
 		}
-		n, _ := strconv.Atoi(m[2])
 		ns = append(ns, numbered{f, n})
 	}
 	if len(ns) < 2 {
