@@ -100,6 +100,10 @@ func videoFor(kind string, s Subtitle, videos []Link) (Link, bool) {
 			return v, true
 		}
 	}
+	if want == "1" && target != "" {
+		// "CD1" for a movie that's one file: the main video.
+		return videoFor(kind, Subtitle{Name: "movie"}, videos)
+	}
 	return Link{}, false
 }
 

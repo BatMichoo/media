@@ -205,6 +205,12 @@ func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Downlo
 		}
 	}
 	if have, err := s.store.GetDownload(ctx, hash); err == nil {
+		// Already here: the uploads belong to it as it is.
+		if have.Kind != in.Kind {
+			if subs, err = prepareAll(have.Kind, in.Subtitles); err != nil {
+				return Download{}, false, err
+			}
+		}
 		if err := s.keepAll(ctx, have, subs); err != nil {
 			return Download{}, false, err
 		}

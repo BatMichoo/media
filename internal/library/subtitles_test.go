@@ -81,3 +81,11 @@ func TestPlaceLaterWins(t *testing.T) {
 	})
 	assert.Equal(t, []Link{links[0], {"subtitles/h/new.srt", dir + "/Dune.bg.srt"}}, out)
 }
+
+func TestPlaceCD1OnSingleFileMovie(t *testing.T) {
+	dir := "library/Movies/Dune"
+	links := []Link{{"downloads/h/Dune.mkv", dir + "/Dune.mkv"}}
+	out, unplaced := PlaceSubtitles("movie", "h", links, []Subtitle{{ID: "a", Lang: "bg", Ext: ".srt", Name: "Dune.CD1.srt"}})
+	assert.Equal(t, 0, unplaced)
+	assert.Contains(t, out, Link{"subtitles/h/a.srt", dir + "/Dune.bg.srt"})
+}

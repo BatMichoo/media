@@ -25,8 +25,13 @@ func libraryPath(jellyfinPath string) (string, bool) {
 		return "", false
 	}
 	rel := "library/" + p[i+len("/library/"):]
-	if path.Clean(rel) != rel || strings.Contains(rel, "..") {
+	if path.Clean(rel) != rel {
 		return "", false
+	}
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == ".." || seg == "." || seg == "" {
+			return "", false
+		}
 	}
 	if !strings.HasPrefix(rel, "library/Movies/") && !strings.HasPrefix(rel, "library/Shows/") {
 		return "", false
@@ -38,7 +43,9 @@ func libraryPath(jellyfinPath string) (string, bool) {
 // or an episode, puts it next to the video and asks Jellyfin to look.
 func (h *web) postSubtitles(c *gin.Context) {
 	ctx := c.Request.Context()
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, subtitles.MaxSize+64<<10)
+	// Room for a file somewhat over the limit, so it's reported as too big
+	// rather than as missing.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2*subtitles.MaxSize+64<<10)
 	it, err := h.d.Catalog.Item(ctx, c.Param("id"))
 	if isNotFound(err) {
 		h.notFound(c)

@@ -98,42 +98,66 @@ func (s *Service) keepAll(ctx context.Context, d db.Download, ps []prepared) err
 	if d.State != "filed" {
 		return nil
 	}
-	return s.placeNow(ctx, d, rows)
+	unplaced, err := s.placeNow(ctx, d, rows)
+	if err != nil || unplaced == 0 {
+		return err
+	}
+	d.Reason = unplacedText(unplaced)
+	return s.store.UpdateDownload(ctx, d)
 }
 
 // placeNow links kept uploads next to a filed download's videos (found
 // among the links it already made), replacing what's at those places.
-func (s *Service) placeNow(ctx context.Context, d db.Download, rows []db.Subtitle) error {
+func (s *Service) placeNow(ctx context.Context, d db.Download, rows []db.Subtitle) (int, error) {
 	have, err := s.store.Links(ctx, d.Hash)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	links := make([]library.Link, len(have))
 	for i, p := range have {
 		links[i] = library.Link{To: p}
 	}
-	out, _ := library.PlaceSubtitles(d.Kind, d.Hash, links, librarySubs(rows))
+	out, unplaced := library.PlaceSubtitles(d.Kind, d.Hash, links, librarySubs(rows))
 	var made []string
 	for _, l := range out {
 		if !strings.HasPrefix(l.From, "subtitles/") {
 			continue // a link the download made earlier
 		}
-		dst := filepath.Join(s.dataDir, filepath.FromSlash(l.To))
-		if err := os.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
+		if err := s.clearPlace(ctx, d.Hash, l.To); err != nil {
+			return 0, err
 		}
 		m, err := library.Apply(s.dataDir, []library.Link{l})
 		made = append(made, m...)
 		if err != nil {
 			_ = s.store.AddLinks(ctx, d.Hash, made)
-			return err
+			return 0, err
 		}
 	}
 	if err := s.store.AddLinks(ctx, d.Hash, made); err != nil {
-		return err
+		return 0, err
 	}
 	if len(made) > 0 {
 		s.refresh(ctx)
+	}
+	return unplaced, nil
+}
+
+// clearPlace makes room for a subtitle at dst (library path): it removes
+// what's there and the same language in the other formats (so a .ass
+// replacing a .srt doesn't leave two), and forgets those links when a
+// download (hash, "" for none) made them.
+func (s *Service) clearPlace(ctx context.Context, hash, dst string) error {
+	stem := strings.TrimSuffix(dst, path.Ext(dst))
+	for ext := range subtitles.Exts {
+		p := stem + ext
+		if err := os.Remove(filepath.Join(s.dataDir, filepath.FromSlash(p))); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if hash != "" && p != dst {
+			if err := s.store.DeleteLink(ctx, hash, p); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -202,6 +226,9 @@ func (s *Service) LibrarySubtitle(ctx context.Context, video, kind string, up Up
 	dstFile := filepath.Join(s.dataDir, filepath.FromSlash(dst))
 	hash, err := s.store.LinkOwner(ctx, video)
 	if errors.Is(err, db.ErrNotFound) {
+		if err := s.clearPlace(ctx, "", dst); err != nil {
+			return err
+		}
 		return writeFile(dstFile, p.data)
 	}
 	if err != nil {
@@ -217,7 +244,7 @@ func (s *Service) LibrarySubtitle(ctx context.Context, video, kind string, up Up
 	}
 	// Uploads win over whatever is there (an earlier upload, the
 	// torrent's own subtitle).
-	if err := os.Remove(dstFile); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := s.clearPlace(ctx, hash, dst); err != nil {
 		return err
 	}
 	if _, err := library.Apply(s.dataDir, []library.Link{{From: library.SubtitleFile(hash, librarySub(row)), To: dst}}); err != nil {

@@ -44,6 +44,7 @@ func TestLibraryPath(t *testing.T) {
 		"/media/other/x.mkv":               "",
 		"/data/library/../etc/passwd":      "",
 		"/data/library/Movies/../../x.mkv": "",
+		"/data/library/Movies/Tick, Tick... Boom! (2021)/Tick, Tick... Boom! (2021).mkv": "library/Movies/Tick, Tick... Boom! (2021)/Tick, Tick... Boom! (2021).mkv",
 	} {
 		got, ok := libraryPath(in)
 		assert.Equal(t, want != "", ok, in)
@@ -152,4 +153,14 @@ func TestPostSubtitlesInvalidShowsError(t *testing.T) {
 	assert.Equal(t, "/movies/"+m.ID+"?subs_error=error.sub_type&subs_file=x.txt", w.Header().Get("Location"))
 	_, doc := a.get(t, w.Header().Get("Location"))
 	assert.Contains(t, doc.Find(".form-error").Text(), "x.txt isn't a subtitle file")
+}
+
+func TestPostSubtitlesTooBig(t *testing.T) {
+	a := newApp(t)
+	m := movie("Dune", "Dune (2021)", 2021)
+	a.cat.items[m.ID] = m
+	body, ct := subtitleForm(t, map[string]string{"subtitle_lang": "bg"}, "big.srt", bytes.Repeat([]byte("a"), 2<<20+512<<10))
+	w, _ := a.postMultipart(t, "/subtitles/"+m.ID, body, ct)
+	assert.Equal(t, 303, w.Code)
+	assert.Contains(t, w.Header().Get("Location"), "subs_error=error.sub_size")
 }

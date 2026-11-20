@@ -886,3 +886,53 @@ func TestAddTooManySubtitles(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalid)
 	assert.Equal(t, 0, e.t.adds)
 }
+
+func TestAddDuplicateChecksExistingKind(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addSeries(t, "h1", "Show")
+	e.t.nextHash = "h1"
+	_, _, err := e.s.Add(ctx, alice, AddInput{Magnet: "magnet:?xt=urn:btih:h1", Kind: "movie", Title: "Show", Year: 2020,
+		Subtitles: []Upload{{Name: "Show.bg.srt", Lang: "bg", Data: []byte("x")}}})
+	var in *InvalidError
+	require.ErrorAs(t, err, &in)
+	assert.Equal(t, "error.sub_episode", in.Key)
+	assert.Empty(t, e.subs(t, "h1"))
+}
+
+func TestAddDuplicateReportsUnplaced(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addSeries(t, "h1", "Show")
+	e.finish(t, "h1", e.file(t, "h1", "Show.S01E01.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	e.t.nextHash = "h1"
+	_, _, err := e.s.Add(ctx, alice, AddInput{Magnet: "magnet:?xt=urn:btih:h1", Kind: "series", Title: "Show",
+		Subtitles: []Upload{{Name: "Show.S01E09.srt", Lang: "bg", Data: []byte("x")}}})
+	require.NoError(t, err)
+	assert.Contains(t, e.get(t, "h1").Reason, "1 subtitle")
+}
+
+func TestLibrarySubtitleOtherFormatReplaces(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.finish(t, "h1", e.file(t, "h1", "D/Dune.mkv"))
+	require.NoError(t, e.s.Poll(ctx))
+	video := "library/Movies/Dune (2021)/Dune (2021).mkv"
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", Upload{Name: "a.srt", Lang: "bg", Data: []byte("one")}))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, video, "movie", Upload{Name: "a.ass", Lang: "bg", Data: []byte("two")}))
+	assert.False(t, e.exists("library/Movies/Dune (2021)/Dune (2021).bg.srt"))
+	assert.True(t, e.exists("library/Movies/Dune (2021)/Dune (2021).bg.ass"))
+	links, err := e.s.store.Links(ctx, "h1")
+	require.NoError(t, err)
+	assert.NotContains(t, links, "library/Movies/Dune (2021)/Dune (2021).bg.srt")
+
+	hand := "library/Movies/Hand/Hand.mkv"
+	require.NoError(t, os.MkdirAll(filepath.Join(e.dir, "library/Movies/Hand"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(e.dir, hand), []byte("v"), 0o644))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, hand, "movie", Upload{Name: "a.srt", Lang: "bg", Data: []byte("one")}))
+	require.NoError(t, e.s.LibrarySubtitle(ctx, hand, "movie", Upload{Name: "a.vtt", Lang: "bg", Data: []byte("two")}))
+	assert.False(t, e.exists("library/Movies/Hand/Hand.bg.srt"))
+	assert.True(t, e.exists("library/Movies/Hand/Hand.bg.vtt"))
+}
