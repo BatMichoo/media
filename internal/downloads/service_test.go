@@ -31,6 +31,7 @@ type fakeTorrents struct {
 	stopped   []string
 	started   []string
 	seq       []string
+	seqOff    []string
 	wantSet   []string // "hash +0,1 -2" per SetWanted call
 	placed    map[string]string
 	nextHash  string
@@ -112,12 +113,16 @@ func (f *fakeTorrents) Start(_ context.Context, hash string) error {
 	return nil
 }
 
-func (f *fakeTorrents) SetSequential(_ context.Context, hash string) error {
+func (f *fakeTorrents) SetSequential(_ context.Context, hash string, on bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.seq = append(f.seq, hash)
+	if on {
+		f.seq = append(f.seq, hash)
+	} else {
+		f.seqOff = append(f.seqOff, hash)
+	}
 	t := f.torrents[hash]
-	t.Sequential = true
+	t.Sequential = on
 	f.torrents[hash] = t
 	return nil
 }

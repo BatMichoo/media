@@ -44,7 +44,7 @@ type Torrents interface {
 	Remove(ctx context.Context, hash string, deleteData bool) error
 	Stop(ctx context.Context, hash string) error
 	Start(ctx context.Context, hash string) error
-	SetSequential(ctx context.Context, hash string) error
+	SetSequential(ctx context.Context, hash string, on bool) error
 	SetWanted(ctx context.Context, hash string, wanted, unwanted []int) error
 	Place(ctx context.Context, hash, dir string) error
 }
@@ -425,7 +425,7 @@ func (s *Service) Poll(ctx context.Context) error {
 			delete(s.pending, r.Hash)
 		}
 		if ok && t.PercentDone < 1 && !t.Sequential {
-			if err := s.t.SetSequential(ctx, r.Hash); err != nil {
+			if err := s.t.SetSequential(ctx, r.Hash, true); err != nil {
 				errs = append(errs, fmt.Errorf("sequential %s: %w", r.Title, err))
 			}
 		}

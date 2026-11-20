@@ -50,6 +50,16 @@ type Torrent struct {
 	DoneDate     time.Time // zero until it finished downloading
 	Stopped      bool
 	Sequential   bool // downloads its pieces in order (Transmission 4.1+)
+
+	RateUpload   int64   // bytes per second
+	Uploaded     int64   // bytes uploaded in all
+	Ratio        float64 // uploaded / downloaded; 0 when not known
+	Peers        int     // peers connected
+	PeersSending int     // connected peers sending to us
+	Queued       bool    // waiting in Transmission's download queue
+	QueuePos     int     // 1-based place in the queue
+	Seeders      int     // the trackers' highest seeder count; -1 when not known
+	TrackerError string  // why announcing failed, when no tracker answered
 }
 
 // Add adds a torrent from a magnet link or a .torrent file (exactly one).
@@ -83,7 +93,8 @@ func (c *Client) Add(ctx context.Context, magnet string, torrentFile []byte, dow
 }
 
 var getFields = []string{"hashString", "name", "percentDone", "rateDownload", "error",
-	"errorString", "files", "doneDate", "status", "sizeWhenDone", "leftUntilDone", "eta", "sequential_download", "fileStats"}
+	"errorString", "files", "doneDate", "status", "sizeWhenDone", "leftUntilDone", "eta", "sequential_download", "fileStats",
+	"rateUpload", "uploadedEver", "uploadRatio", "peersConnected", "peersSendingToUs", "queuePosition", "trackerStats"}
 
 // Get returns the torrents with these hashes; unknown ones are absent.
 func (c *Client) Get(ctx context.Context, hashes []string) (map[string]Torrent, error) {
@@ -107,7 +118,15 @@ func (c *Client) Get(ctx context.Context, hashes []string) (map[string]Torrent, 
 			Left:         t.LeftUntilDone,
 			Stopped:      t.Status == 0,
 			Sequential:   t.Sequential,
+			RateUpload:   t.RateUpload,
+			Uploaded:     t.UploadedEver,
+			Ratio:        max(t.UploadRatio, 0),
+			Peers:        t.PeersConnected,
+			PeersSending: t.PeersSendingToUs,
+			Queued:       t.Status == 3,
+			QueuePos:     t.QueuePosition + 1,
 		}
+		tor.Seeders, tor.TrackerError = trackerSummary(t.TrackerStats)
 		if t.Error != 0 {
 			// 1 and 2 are tracker warnings and errors; 3 is local.
 			tor.Error, tor.LocalError = t.ErrorString, t.Error == 3
@@ -128,6 +147,26 @@ func (c *Client) Get(ctx context.Context, hashes []string) (map[string]Torrent, 
 	return got, nil
 }
 
+// trackerSummary is the highest seeder count the trackers know (-1 when
+// none does), and the first tracker's failure when none answered.
+func trackerSummary(ts []rpcTracker) (seeders int, failure string) {
+	seeders = -1
+	answered := false
+	for _, tr := range ts {
+		seeders = max(seeders, tr.SeederCount)
+		switch {
+		case tr.LastAnnounceSucceeded:
+			answered = true
+		case tr.HasAnnounced && failure == "":
+			failure = tr.LastAnnounceResult
+		}
+	}
+	if answered {
+		failure = ""
+	}
+	return seeders, failure
+}
+
 // Remove removes a torrent, and its downloaded data when deleteData.
 func (c *Client) Remove(ctx context.Context, hash string, deleteData bool) error {
 	return c.call(ctx, "torrent-remove", map[string]any{"ids": []string{hash}, "delete-local-data": deleteData}, nil)
@@ -143,9 +182,27 @@ func (c *Client) Start(ctx context.Context, hash string) error {
 	return c.call(ctx, "torrent-start", map[string]any{"ids": []string{hash}}, nil)
 }
 
-// SetSequential makes a torrent download its pieces in order.
-func (c *Client) SetSequential(ctx context.Context, hash string) error {
-	return c.call(ctx, "torrent-set", map[string]any{"ids": []string{hash}, "sequential_download": true}, nil)
+// StartNow starts a torrent straight away, skipping Transmission's queue.
+func (c *Client) StartNow(ctx context.Context, hash string) error {
+	return c.call(ctx, "torrent-start-now", map[string]any{"ids": []string{hash}}, nil)
+}
+
+// SetSequential makes a torrent download its pieces in order (on) or in
+// any order.
+func (c *Client) SetSequential(ctx context.Context, hash string, on bool) error {
+	return c.call(ctx, "torrent-set", map[string]any{"ids": []string{hash}, "sequential_download": on}, nil)
+}
+
+// PortOpen asks Transmission whether its peer port can be reached from
+// the internet (Transmission checks with its own port-test site).
+func (c *Client) PortOpen(ctx context.Context) (bool, error) {
+	var out struct {
+		Open bool `json:"port-is-open"`
+	}
+	if err := c.call(ctx, "port-test", map[string]any{}, &out); err != nil {
+		return false, err
+	}
+	return out.Open, nil
 }
 
 // Place gives a just-added (paused) torrent its folder and starts it.
@@ -204,6 +261,20 @@ type rpcTorrent struct {
 	FileStats []struct {
 		Wanted bool `json:"wanted"`
 	} `json:"fileStats"`
+	RateUpload       int64        `json:"rateUpload"`
+	UploadedEver     int64        `json:"uploadedEver"`
+	UploadRatio      float64      `json:"uploadRatio"` // -1 and -2 when not known
+	PeersConnected   int          `json:"peersConnected"`
+	PeersSendingToUs int          `json:"peersSendingToUs"`
+	QueuePosition    int          `json:"queuePosition"`
+	TrackerStats     []rpcTracker `json:"trackerStats"`
+}
+
+type rpcTracker struct {
+	SeederCount           int    `json:"seederCount"` // -1 when not known
+	HasAnnounced          bool   `json:"hasAnnounced"`
+	LastAnnounceSucceeded bool   `json:"lastAnnounceSucceeded"`
+	LastAnnounceResult    string `json:"lastAnnounceResult"`
 }
 
 // call sends one RPC request, doing the session-id handshake (409) once

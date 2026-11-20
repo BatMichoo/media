@@ -148,7 +148,8 @@ func TestGetFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []any{"aaa", "bbb", "ccc"}, f.calls[0].Arguments["ids"])
 	assert.ElementsMatch(t, []any{"hashString", "name", "percentDone", "rateDownload", "error",
-		"errorString", "files", "doneDate", "status", "sizeWhenDone", "leftUntilDone", "eta", "sequential_download", "fileStats"},
+		"errorString", "files", "doneDate", "status", "sizeWhenDone", "leftUntilDone", "eta", "sequential_download", "fileStats",
+		"rateUpload", "uploadedEver", "uploadRatio", "peersConnected", "peersSendingToUs", "queuePosition", "trackerStats"},
 		f.calls[0].Arguments["fields"])
 	assert.Len(t, got, 2)
 	a := got["aaa"]
@@ -208,7 +209,7 @@ func TestStartAndSequential(t *testing.T) {
 	require.NoError(t, c.Start(context.Background(), "abc"))
 	assert.Equal(t, "torrent-start", f.calls[0].Method)
 	assert.Equal(t, []any{"abc"}, f.calls[0].Arguments["ids"])
-	require.NoError(t, c.SetSequential(context.Background(), "abc"))
+	require.NoError(t, c.SetSequential(context.Background(), "abc", true))
 	assert.Equal(t, "torrent-set", f.calls[1].Method)
 	assert.Equal(t, map[string]any{"ids": []any{"abc"}, "sequential_download": true}, f.calls[1].Arguments)
 }
@@ -269,4 +270,85 @@ func TestErrorKinds(t *testing.T) {
 	assert.Equal(t, "unregistered torrent", got["a"].Error)
 	assert.False(t, got["a"].LocalError, "a tracker problem")
 	assert.True(t, got["b"].LocalError)
+}
+
+func TestGetStats(t *testing.T) {
+	f := &fake{reply: func(call) map[string]any {
+		return ok(map[string]any{"torrents": []any{map[string]any{
+			"hashString": "A", "rateUpload": 1000, "uploadedEver": 5e9, "uploadRatio": 0.5,
+			"peersConnected": 3, "peersSendingToUs": 0, "status": 3, "queuePosition": 1,
+			"trackerStats": []any{
+				map[string]any{"seederCount": -1},
+				map[string]any{"seederCount": 45, "hasAnnounced": true, "lastAnnounceSucceeded": false, "lastAnnounceResult": "Connection failed"},
+			},
+		}}})
+	}}
+	_, c := f.server(t)
+	got, err := c.Get(context.Background(), []string{"a"})
+	require.NoError(t, err)
+	a := got["a"]
+	assert.Equal(t, int64(1000), a.RateUpload)
+	assert.Equal(t, int64(5e9), a.Uploaded)
+	assert.Equal(t, 0.5, a.Ratio)
+	assert.Equal(t, 3, a.Peers)
+	assert.Equal(t, 0, a.PeersSending)
+	assert.True(t, a.Queued)
+	assert.False(t, a.Stopped)
+	assert.Equal(t, 2, a.QueuePos)
+	assert.Equal(t, 45, a.Seeders)
+	assert.Equal(t, "Connection failed", a.TrackerError)
+	assert.Contains(t, f.calls[0].Arguments["fields"], "trackerStats")
+}
+
+func TestGetTrackerErrorOnlyWhenNoneSucceeded(t *testing.T) {
+	f := &fake{reply: func(call) map[string]any {
+		return ok(map[string]any{"torrents": []any{map[string]any{
+			"hashString": "A", "status": 4,
+			"trackerStats": []any{
+				map[string]any{"seederCount": 10, "hasAnnounced": true, "lastAnnounceSucceeded": false, "lastAnnounceResult": "timed out"},
+				map[string]any{"seederCount": 5, "hasAnnounced": true, "lastAnnounceSucceeded": true},
+			},
+		}}})
+	}}
+	_, c := f.server(t)
+	got, err := c.Get(context.Background(), []string{"a"})
+	require.NoError(t, err)
+	assert.Equal(t, "", got["a"].TrackerError)
+	assert.Equal(t, 10, got["a"].Seeders)
+	assert.False(t, got["a"].Queued)
+}
+
+func TestGetRatioUnknown(t *testing.T) {
+	f := &fake{reply: func(call) map[string]any {
+		return ok(map[string]any{"torrents": []any{map[string]any{"hashString": "A", "uploadRatio": -1, "status": 4}}})
+	}}
+	_, c := f.server(t)
+	got, err := c.Get(context.Background(), []string{"a"})
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, got["a"].Ratio)
+	assert.Equal(t, -1, got["a"].Seeders)
+}
+
+func TestStartNow(t *testing.T) {
+	f := &fake{}
+	_, c := f.server(t)
+	require.NoError(t, c.StartNow(context.Background(), "abc"))
+	assert.Equal(t, "torrent-start-now", f.calls[0].Method)
+	assert.Equal(t, []any{"abc"}, f.calls[0].Arguments["ids"])
+}
+
+func TestSetSequentialOff(t *testing.T) {
+	f := &fake{}
+	_, c := f.server(t)
+	require.NoError(t, c.SetSequential(context.Background(), "abc", false))
+	assert.Equal(t, map[string]any{"ids": []any{"abc"}, "sequential_download": false}, f.calls[0].Arguments)
+}
+
+func TestPortOpen(t *testing.T) {
+	f := &fake{reply: func(call) map[string]any { return ok(map[string]any{"port-is-open": true}) }}
+	_, c := f.server(t)
+	open, err := c.PortOpen(context.Background())
+	require.NoError(t, err)
+	assert.True(t, open)
+	assert.Equal(t, "port-test", f.calls[0].Method)
 }
