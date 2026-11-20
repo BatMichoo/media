@@ -215,7 +215,10 @@
   function openMenu() {
     // Sit just above the controls, however tall the safe area makes them.
     var controls = root.querySelector(".player-controls").getBoundingClientRect();
-    menu.style.bottom = Math.round(root.getBoundingClientRect().bottom - controls.top + 4) + "px";
+    var bottom = Math.round(root.getBoundingClientRect().bottom - controls.top + 4);
+    menu.style.bottom = bottom + "px";
+    // Fit inside the player box, scrolling when it's short (inline on a phone).
+    menu.style.maxHeight = Math.max(120, root.clientHeight - bottom - 8) + "px";
     menu.hidden = false;
     settingsBtn.setAttribute("aria-expanded", "true");
     root.classList.add("menu-open");
@@ -469,15 +472,8 @@
       case "fullscreen": fullscreen(); break;
       case "settings": if (menuOpen()) closeMenu(); else openMenu(); break;
       case "mute": toggleMute(); break;
-      case "back": e.preventDefault(); leave(); break;
     }
   });
-
-  function leave() {
-    leaving = true;
-    save("stop");
-    location.href = back;
-  }
 
   function keyboardFocused(el) {
     try { return el.matches(":focus-visible"); } catch (_) { return false; } // older Safari
@@ -554,7 +550,7 @@
   var TAP_MS = 250;
   var tapTimer = null, lastTapAt = 0, lastDoubleAt = 0, lastTouchAt = 0;
   function onSurface(el) {
-    return !el.closest("button, a, input, .player-menu, .player-controls, .player-top");
+    return !el.closest("button, a, input, .player-menu, .player-controls");
   }
   function sideOf(clientX) {
     var r = root.getBoundingClientRect();

@@ -34,6 +34,17 @@ type watchView struct {
 	Part                            int
 	Start                           float64
 	Labels                          string // JSON of the player's texts
+
+	// What's playing, shown under the player.
+	Episode     bool          // an episode (else a movie)
+	Heading     string        // the movie's title, or the show's
+	Year        int           // movies: 0 = unknown
+	EpisodeName string        // episodes
+	SeasonNo    int           // episodes: 0 = specials / unknown
+	EpisodeNo   int           // episodes
+	Overview    string        //
+	Episodes    []episodeView // the rest of an episode's season, in order
+	CurrentID   string        // the item playing
 }
 
 var playerLabels = []string{"player.back", "player.play", "player.pause", "player.back10", "player.forward10",
@@ -52,7 +63,8 @@ func (h *web) watch(c *gin.Context) {
 		h.unavailable(c, err)
 		return
 	}
-	v := watchView{Lang: l, Item: it.ID, Title: it.DisplayTitle(), Back: "/"}
+	v := watchView{Lang: l, Item: it.ID, Title: it.DisplayTitle(), Back: "/",
+		Heading: it.DisplayTitle(), Year: it.Year, Overview: it.Overview, CurrentID: it.ID}
 	parts := []partView{{ID: it.ID, Duration: it.RunTimeSeconds}}
 	switch it.Type {
 	case "Movie":
@@ -69,6 +81,9 @@ func (h *web) watch(c *gin.Context) {
 		if it.SeriesID != "" {
 			v.Back = "/shows/" + it.SeriesID
 		}
+		v.Episode, v.Heading, v.EpisodeName = true, it.ShowTitle(), it.Name
+		v.SeasonNo, v.EpisodeNo, v.Year = it.ParentIndex, it.Index, 0
+		v.Episodes = h.seasonEpisodes(c, it)
 	}
 	if p, ok, err := h.d.Watching.Get(ctx, CurrentUser(c).ID, it.ID); err == nil && ok && !p.Finished && p.Part < len(parts) {
 		v.Part, v.Start = p.Part, p.Position
@@ -310,4 +325,42 @@ func (h *web) prefs(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// seasonEpisodes are the episodes of an episode's season with the person's
+// marks, for the list under the player; nil when unknown.
+func (h *web) seasonEpisodes(c *gin.Context, it jellyfin.Item) []episodeView {
+	if it.SeriesID == "" || it.ParentIndex <= 0 {
+		return nil
+	}
+	ctx := c.Request.Context()
+	all, err := h.d.Catalog.Episodes(ctx, it.SeriesID)
+	if err != nil {
+		log.Printf("season episodes: %v", err)
+		return nil
+	}
+	var eps []jellyfin.Item
+	ids := []string{}
+	for _, e := range all {
+		if e.ParentIndex == it.ParentIndex {
+			eps = append(eps, e)
+			ids = append(ids, e.ID)
+		}
+	}
+	prog, err := h.d.Watching.Many(ctx, CurrentUser(c).ID, ids)
+	if err != nil {
+		log.Printf("season progress: %v", err)
+	}
+	out := make([]episodeView, 0, len(eps))
+	for _, e := range eps {
+		ev := episodeView{ID: e.ID, Name: e.Name, Number: e.Index, Image: stillOf(e)}
+		if p, ok := prog[e.ID]; ok {
+			ev.Watched = p.Finished
+			if !p.Finished {
+				ev.Fraction, ev.HasBar = watching.Fraction(p), true
+			}
+		}
+		out = append(out, ev)
+	}
+	return out
 }

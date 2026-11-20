@@ -222,3 +222,52 @@ func TestPrefsPartial(t *testing.T) {
 	assert.Equal(t, "off", *a.w.setSub)
 	assert.Nil(t, a.w.setAud, "audio kept")
 }
+
+func TestWatchPageInline(t *testing.T) {
+	a := newApp(t)
+	m := movie("Dune", "Dune (2021)", 2021)
+	m.Overview = "Spice."
+	a.cat.items[m.ID] = m
+	w, doc := a.get(t, "/watch/"+m.ID)
+	require.Equal(t, 200, w.Code)
+	assert.Equal(t, 0, doc.Find(".player-top").Length())
+	assert.Equal(t, 0, doc.Find(`[data-action="back"]`).Length())
+	assert.Equal(t, 1, doc.Find(`#player[hx-history="false"]`).Length())
+	assert.Equal(t, "Dune (2021)", strings.TrimSpace(doc.Find(".watch-info h1").Text()))
+	assert.Contains(t, doc.Find(".watch-info .watch-sub").Text(), "2021")
+	assert.Equal(t, "Spice.", strings.TrimSpace(doc.Find(".watch-info .overview").Text()))
+	assert.Equal(t, 0, doc.Find(".watch-info .episodes").Length())
+}
+
+func TestWatchEpisodeList(t *testing.T) {
+	a := newApp(t)
+	sev := id("sev")
+	mk := func(name string, season, n int) jellyfin.Item {
+		return jellyfin.Item{ID: id(name), Type: "Episode", Name: name, SeriesID: sev, SeriesName: "Severance", ParentIndex: season, Index: n,
+			Path: "/data/library/Shows/Severance/" + name + ".mkv"}
+	}
+	e1, e2, e3, e4 := mk("One", 1, 1), mk("Two", 1, 2), mk("Three", 1, 3), mk("Four", 2, 1)
+	a.cat.items[e2.ID] = e2
+	a.cat.episodes[sev] = []jellyfin.Item{e1, e2, e3, e4}
+	a.w.prog[e1.ID] = watching.Progress{ItemID: e1.ID, Finished: true, Watched: 95, Duration: 100}
+	w, doc := a.get(t, "/watch/"+e2.ID)
+	require.Equal(t, 200, w.Code)
+	eps := doc.Find(".watch-info .episodes .episode")
+	require.Equal(t, 3, eps.Length())
+	assert.True(t, eps.Eq(1).HasClass("playing"))
+	assert.True(t, eps.Eq(0).HasClass("watched"))
+	href, _ := eps.Eq(0).Find("a").Attr("href")
+	assert.Equal(t, "/watch/"+e1.ID, href)
+	assert.Contains(t, doc.Find(".watch-info .watch-sub").Text(), "S1 · E2")
+	assert.Equal(t, "Severance", strings.TrimSpace(doc.Find(".watch-info h1").Text()))
+}
+
+func TestWatchEpisodeNoSeason(t *testing.T) {
+	a := newApp(t)
+	ep := jellyfin.Item{ID: id("x"), Type: "Episode", Name: "Special", SeriesID: id("sev"), Path: "/data/library/Shows/S/x.mkv"}
+	a.cat.items[ep.ID] = ep
+	a.cat.episodes[id("sev")] = []jellyfin.Item{ep}
+	w, doc := a.get(t, "/watch/"+ep.ID)
+	require.Equal(t, 200, w.Code)
+	assert.Equal(t, 0, doc.Find(".watch-info .episodes").Length())
+}

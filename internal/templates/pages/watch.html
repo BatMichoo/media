@@ -1,5 +1,6 @@
 {{ define "media/watch" }}
-<div id="player" class="player" tabindex="-1"
+<div class="watch">
+<div id="player" class="player" tabindex="-1" hx-history="false"
   data-item="{{ .Item }}" data-series="{{ .Series }}" data-parts="{{ .Parts }}" data-part="{{ .Part }}"
   data-start="{{ .Start }}" data-back="{{ .Back }}" data-labels="{{ .Labels }}">
   <svg class="player-icons" aria-hidden="true" focusable="false">
@@ -19,10 +20,6 @@
   <div class="player-flash left" hidden></div>
   <div class="player-flash right" hidden></div>
   <p class="player-error" hidden></p>
-  <div class="player-top">
-    <a class="player-button" href="{{ .Back }}" data-action="back" aria-label='{{ t .Lang "player.back" }}'><svg><use href="#i-back"/></svg></a>
-    <span class="player-title">{{ .Title }}</span>
-  </div>
   <div class="player-center">
     <button type="button" class="player-button" data-action="back10" aria-label='{{ t .Lang "player.back10" }}'><svg><use href="#i-back10"/></svg></button>
     <button type="button" class="player-button player-toggle" data-action="toggle" aria-label='{{ t .Lang "player.play" }}'><svg><use href="#i-play"/></svg></button>
@@ -55,6 +52,31 @@
       <button type="button" class="player-button" data-action="fullscreen" aria-label='{{ t .Lang "player.fullscreen" }}'><svg><use href="#i-fullscreen"/></svg></button>
     </div>
   </div>
+</div>
+<div class="watch-info">
+  <h1>{{ .Heading }}</h1>
+  {{ if .Episode }}
+  <p class="watch-sub">{{ if .SeasonNo }}{{ printf (t .Lang "watch.episode") .SeasonNo .EpisodeNo }} · {{ end }}{{ .EpisodeName }}</p>
+  {{ else if .Year }}
+  <p class="watch-sub">{{ .Year }}</p>
+  {{ end }}
+  {{ if .Overview }}<p class="overview">{{ .Overview }}</p>{{ end }}
+  {{ if .Episodes }}
+  {{ $lang := .Lang }}{{ $cur := .CurrentID }}
+  <ol class="episodes">
+    {{ range .Episodes }}
+    <li class="episode{{ if .Watched }} watched{{ end }}{{ if eq .ID $cur }} playing{{ end }}">
+      <a href="/watch/{{ .ID }}"{{ if eq .ID $cur }} aria-current="true"{{ end }}>
+        <span class="episode-thumb">{{ template "media/art" (themeDict "Image" .Image "Title" "" "Hue" 210 "Fraction" .Fraction "HasBar" .HasBar) }}</span>
+        <span class="episode-number">{{ .Number }}</span>
+        <span class="episode-name">{{ .Name }}</span>
+        {{ if .Watched }}<span class="episode-watched" title='{{ t $lang "watched" }}'>✓</span>{{ end }}
+      </a>
+    </li>
+    {{ end }}
+  </ol>
+  {{ end }}
+</div>
 </div>
 <script src="/static/media/js/hls.min.js?v={{ assetVersion }}"></script>
 <script src="/static/media/js/player.js?v={{ assetVersion }}"></script>

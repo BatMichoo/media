@@ -83,6 +83,7 @@
   "remove.delete_files": "Also delete the files",
   "toast.saved": "Saved",
   "toast.removed": "Removed",
+  "watch.episode": "S%d · E%d",
   "player.back": "Back",
   "player.play": "Play",
   "player.pause": "Pause",
