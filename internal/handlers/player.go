@@ -47,7 +47,7 @@ type watchView struct {
 	CurrentID   string        // the item playing
 }
 
-var playerLabels = []string{"player.back", "player.play", "player.pause", "player.back10", "player.forward10",
+var playerLabels = []string{"player.play", "player.pause", "player.back10", "player.forward10",
 	"player.subtitles", "player.audio", "player.off", "player.fullscreen", "player.error",
 	"player.mute", "player.unmute", "player.settings", "player.exitFullscreen"}
 
@@ -65,6 +65,9 @@ func (h *web) watch(c *gin.Context) {
 	}
 	v := watchView{Lang: l, Item: it.ID, Title: it.DisplayTitle(), Back: "/",
 		Heading: it.DisplayTitle(), Year: it.Year, Overview: it.Overview, CurrentID: it.ID}
+	if v.Year != 0 && strings.HasSuffix(v.Heading, fmt.Sprintf("(%d)", v.Year)) {
+		v.Year = 0 // the title already says it
+	}
 	parts := []partView{{ID: it.ID, Duration: it.RunTimeSeconds}}
 	switch it.Type {
 	case "Movie":
@@ -353,14 +356,7 @@ func (h *web) seasonEpisodes(c *gin.Context, it jellyfin.Item) []episodeView {
 	}
 	out := make([]episodeView, 0, len(eps))
 	for _, e := range eps {
-		ev := episodeView{ID: e.ID, Name: e.Name, Number: e.Index, Image: stillOf(e)}
-		if p, ok := prog[e.ID]; ok {
-			ev.Watched = p.Finished
-			if !p.Finished {
-				ev.Fraction, ev.HasBar = watching.Fraction(p), true
-			}
-		}
-		out = append(out, ev)
+		out = append(out, episodeViewOf(e, prog))
 	}
 	return out
 }

@@ -239,6 +239,19 @@ type episodeView struct {
 	HasBar   bool
 }
 
+// episodeViewOf is an episode row with the person's progress (prog may
+// be nil).
+func episodeViewOf(e jellyfin.Item, prog map[string]watching.Progress) episodeView {
+	ev := episodeView{ID: e.ID, Name: e.Name, Number: e.Index, Image: stillOf(e)}
+	if p, ok := prog[e.ID]; ok {
+		ev.Watched = p.Finished
+		if !p.Finished {
+			ev.Fraction, ev.HasBar = watching.Fraction(p), true
+		}
+	}
+	return ev
+}
+
 type seasonView struct {
 	Name     string
 	Episodes []episodeView
@@ -298,15 +311,8 @@ func (h *web) show(c *gin.Context) {
 		if len(v.Seasons) == 0 || v.Seasons[len(v.Seasons)-1].Name != seasonName(l, names, e.ParentIndex) {
 			v.Seasons = append(v.Seasons, seasonView{Name: seasonName(l, names, e.ParentIndex)})
 		}
-		ev := episodeView{ID: e.ID, Name: e.Name, Number: e.Index, Image: stillOf(e)}
-		if p, ok := prog[e.ID]; ok {
-			ev.Watched = p.Finished
-			if !p.Finished {
-				ev.Fraction, ev.HasBar = watching.Fraction(p), true
-			}
-		}
 		s := &v.Seasons[len(v.Seasons)-1]
-		s.Episodes = append(s.Episodes, ev)
+		s.Episodes = append(s.Episodes, episodeViewOf(e, prog))
 	}
 	h.renderTitled(c, http.StatusOK, "media/show", v.Title, v)
 }

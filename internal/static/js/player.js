@@ -15,26 +15,48 @@
     window.mediaPlayer.boot();
     return;
   }
-  var stop = null; // the running player's teardown
+  var stop = null;    // the running player's teardown
+  var running = null; // its root
+
+  function halt() {
+    var s = stop;
+    stop = null;
+    running = null;
+    if (s) s();
+  }
+
+  // sweep stops a player whose page went away without a swap event (a
+  // history restore swaps the page in directly).
+  function sweep() {
+    if (stop && running && !running.isConnected) halt();
+  }
 
   function boot() {
+    sweep();
     var root = document.getElementById("player");
     if (!root || root.dataset.ready) return;
+    if (stop) halt();
     root.dataset.ready = "1";
+    running = root;
     stop = start(root);
   }
 
+  // Going back to the watch page reloads it rather than restoring a copy
+  // htmx kept (the player opts out of that copy, so htmx would otherwise
+  // fetch the whole page and run every script on it again).
+  function configure() {
+    if (window.htmx) window.htmx.config.refreshOnHistoryMiss = true;
+  }
+
   document.addEventListener("htmx:beforeSwap", function (e) {
-    var root = document.getElementById("player");
     var target = e.detail && e.detail.target;
-    if (stop && root && target && target.contains(root)) {
-      var s = stop;
-      stop = null;
-      s();
-    }
+    if (stop && running && target && target.contains(running)) halt();
   });
   document.addEventListener("htmx:afterSwap", boot);
+  document.addEventListener("htmx:historyRestore", function () { sweep(); boot(); });
+  document.addEventListener("DOMContentLoaded", configure);
   window.mediaPlayer = { boot: boot };
+  configure();
   boot();
 
   // start runs a player in root and returns its teardown.
@@ -42,6 +64,7 @@
     // Listeners on the document, window and screen outlive the page's
     // markup, so they're kept to be removed by teardown.
     var listeners = [];
+    var dead = false; // torn down: nothing may start playing any more
     function on(target, type, fn, opts) {
       target.addEventListener(type, fn, opts);
       listeners.push([target, type, fn, opts]);
@@ -138,6 +161,10 @@
         return r.json();
       }).then(function (s) {
         session = s;
+        if (dead) {
+          save("stop"); // the page went while this stream was being set up
+          return;
+        }
         errorBox.hidden = true;
         attach(s, body.start);
         fillTracks(s);
@@ -145,6 +172,7 @@
     }
 
     function attach(s, start) {
+      if (dead) return;
       if (hls) { hls.destroy(); hls = null; }
       Array.prototype.slice.call(video.querySelectorAll("track")).forEach(function (t) { t.remove(); });
       var seekTo = function () {
@@ -258,7 +286,7 @@
       var bottom = Math.round(root.getBoundingClientRect().bottom - controls.top + 4);
       menu.style.bottom = bottom + "px";
       // Fit inside the player box, scrolling when it's short (inline on a phone).
-      menu.style.maxHeight = Math.max(120, root.clientHeight - bottom - 8) + "px";
+      menu.style.maxHeight = Math.max(0, root.clientHeight - bottom - 8) + "px";
       menu.hidden = false;
       settingsBtn.setAttribute("aria-expanded", "true");
       root.classList.add("menu-open");
@@ -394,6 +422,7 @@
       if (!leaving && !video.ended) save("progress");
     });
     video.addEventListener("ended", function () {
+      if (dead) return;
       save("stop");
       if (part + 1 < parts.length) {
         part++;
@@ -520,9 +549,17 @@
     }
 
     on(document, "keydown", function (e) {
-      if (e.target.tagName === "INPUT") {
+      if (e.ctrlKey || e.metaKey || e.altKey) return; // the browser's (Find, Back…)
+      if (e.target.closest && e.target.closest("input, textarea, select, [contenteditable]")) {
         if (e.key !== "Escape") return;
       }
+      // The page's own keys stay the page's: Space and arrows act on the
+      // player only when it has focus (else they scroll, press a link…);
+      // the letters also when nothing in particular has focus.
+      var focus = document.activeElement;
+      var inPlayer = focus && root.contains(focus);
+      var onPage = !focus || focus === document.body || focus === document.documentElement;
+      if (!inPlayer && !(onPage && /^[kfmKFM]$/.test(e.key)) && !(e.key === "Escape" && menuOpen())) return;
       wake();
       if (e.key === "Escape" && menuOpen()) { e.preventDefault(); closeMenu(); settingsBtn.focus(); return; }
       if (menuOpen() && menu.contains(document.activeElement)) {
@@ -640,11 +677,12 @@
 
     on(window, "pagehide", function () { if (!leaving) { leaving = true; save("stop"); } });
 
-    root.focus();
+    root.focus({ preventScroll: true });
     wake();
     load({ start: startAt });
 
     return function teardown() {
+      dead = true;
       if (!leaving) {
         leaving = true;
         save("stop");

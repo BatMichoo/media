@@ -234,7 +234,7 @@ func TestWatchPageInline(t *testing.T) {
 	assert.Equal(t, 0, doc.Find(`[data-action="back"]`).Length())
 	assert.Equal(t, 1, doc.Find(`#player[hx-history="false"]`).Length())
 	assert.Equal(t, "Dune (2021)", strings.TrimSpace(doc.Find(".watch-info h1").Text()))
-	assert.Contains(t, doc.Find(".watch-info .watch-sub").Text(), "2021")
+	assert.Equal(t, 0, doc.Find(".watch-info .watch-sub").Length(), "the title already has the year")
 	assert.Equal(t, "Spice.", strings.TrimSpace(doc.Find(".watch-info .overview").Text()))
 	assert.Equal(t, 0, doc.Find(".watch-info .episodes").Length())
 }
