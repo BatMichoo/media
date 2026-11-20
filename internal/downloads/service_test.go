@@ -328,7 +328,8 @@ func TestPollRemovedExternally(t *testing.T) {
 	require.NoError(t, e.s.Poll(context.Background()))
 	d := e.get(t, "h1")
 	assert.EqualValues(t, "failed", d.State)
-	assert.Equal(t, "removed from Transmission", d.Reason)
+	assert.Equal(t, ReasonRemoved, d.ReasonKey)
+	assert.Equal(t, "", d.Reason)
 }
 
 func TestPollTransmissionError(t *testing.T) {
@@ -348,7 +349,7 @@ func TestPollNoVideo(t *testing.T) {
 	require.NoError(t, e.s.Poll(context.Background()))
 	d := e.get(t, "h1")
 	assert.EqualValues(t, "failed", d.State)
-	assert.Equal(t, "no video files", d.Reason)
+	assert.Equal(t, ReasonNoVideo, d.ReasonKey)
 	assert.Equal(t, 0, e.lib.refreshes)
 }
 
@@ -721,7 +722,7 @@ func TestPollAlreadyInLibrary(t *testing.T) {
 	require.NoError(t, e.s.Poll(context.Background()))
 	d := e.get(t, "b")
 	assert.EqualValues(t, "filed", d.State)
-	assert.Equal(t, "already in the library", d.Reason)
+	assert.Equal(t, ReasonInLibrary, d.ReasonKey)
 }
 
 func TestAddTitleTooLong(t *testing.T) {
@@ -792,7 +793,8 @@ func TestFileSubtitleUnplaced(t *testing.T) {
 	require.NoError(t, e.s.Poll(ctx))
 	d := e.get(t, "h1")
 	assert.EqualValues(t, "filed", d.State)
-	assert.Contains(t, d.Reason, "1 subtitle")
+	assert.Equal(t, ReasonSubsUnplaced, d.ReasonKey)
+	assert.Equal(t, 1, d.ReasonN)
 }
 
 func TestEditKeepsSubtitles(t *testing.T) {
@@ -968,7 +970,9 @@ func TestAddDuplicateReportsUnplaced(t *testing.T) {
 	_, _, err := e.s.Add(ctx, alice, AddInput{Magnet: "magnet:?xt=urn:btih:h1", Kind: "series", Title: "Show",
 		Subtitles: []Upload{{Name: "Show.S01E09.srt", Lang: "bg", Data: []byte("x")}}})
 	require.NoError(t, err)
-	assert.Contains(t, e.get(t, "h1").Reason, "1 subtitle")
+	got := e.get(t, "h1")
+	assert.Equal(t, ReasonSubsUnplaced, got.ReasonKey)
+	assert.Equal(t, 1, got.ReasonN)
 }
 
 func TestLibrarySubtitleOtherFormatReplaces(t *testing.T) {

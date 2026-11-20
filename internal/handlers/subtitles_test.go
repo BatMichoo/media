@@ -181,7 +181,7 @@ func TestSubsErrorFileName(t *testing.T) {
 
 func TestDownloadsUnplacedReasonTranslated(t *testing.T) {
 	a := newApp(t)
-	a.dl.list = []downloads.Download{{Hash: "a1", Kind: "movie", Title: "Dune", Year: 2021, State: "filed", Reason: "2 subtitles didn't match a video"}}
+	a.dl.list = []downloads.Download{{Hash: "a1", Kind: "movie", Title: "Dune", Year: 2021, State: "filed", ReasonKey: downloads.ReasonSubsUnplaced, ReasonN: 2}}
 	_, doc := a.get(t, "/downloads", "Cookie", "homeserver_lang=bg")
 	assert.Contains(t, doc.Find(".reason").Text(), "2 субтитри")
 	_, doc = a.get(t, "/downloads")

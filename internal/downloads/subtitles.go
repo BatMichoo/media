@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -94,7 +93,7 @@ func (s *Service) keepAll(ctx context.Context, d db.Download, ps []prepared) err
 	if err != nil || unplaced == 0 {
 		return err
 	}
-	d.Reason = unplacedText(unplaced)
+	setKey(&d, ReasonSubsUnplaced, unplaced)
 	return s.store.UpdateDownload(ctx, d)
 }
 
@@ -285,13 +284,6 @@ func librarySubs(subs []db.Subtitle) []library.Subtitle {
 		out[i] = librarySub(s)
 	}
 	return out
-}
-
-func unplacedText(n int) string {
-	if n == 1 {
-		return "1 subtitle didn't match a video"
-	}
-	return fmt.Sprintf("%d subtitles didn't match a video", n)
 }
 
 func newID() string {

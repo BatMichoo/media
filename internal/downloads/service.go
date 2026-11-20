@@ -82,7 +82,9 @@ type Download struct {
 	Name, AddedByName string
 	AddedAt           time.Time
 	State             model.State
-	Reason            string
+	Reason            string        // text from Transmission or the file system, or ""
+	ReasonKey         string        // or a message key (see the Reason* constants)
+	ReasonN           int           // the count for ReasonKey's message, 0 = none
 	Percent           float64       // 0..1
 	RateDownload      int64         // bytes per second
 	Size, Done        int64         // bytes in all and so far (Size 0 = not known yet)
@@ -104,6 +106,20 @@ type Download struct {
 	PortClosed bool  // with StuckNoPeers: the peer port can't be reached from outside
 	Port       int   // the peer port, for that note
 }
+
+// The reasons the app gives itself, as message keys (Download.ReasonKey).
+const (
+	ReasonRemoved      = "reason.removed"            // Transmission no longer has it
+	ReasonInLibrary    = "reason.already_in_library" // every file was there already
+	ReasonNoVideo      = "reason.no_video"           // nothing to file
+	ReasonSubsUnplaced = "reason.subs_unplaced"      // ReasonN subtitles matched no video
+)
+
+// setText sets r's reason to text from elsewhere ("" for none).
+func setText(r *db.Download, text string) { r.Reason, r.ReasonKey, r.ReasonN = text, "", 0 }
+
+// setKey sets r's reason to one of the app's own, with its count.
+func setKey(r *db.Download, key string, n int) { r.Reason, r.ReasonKey, r.ReasonN = "", key, n }
 
 // Stuck is why a download isn't moving.
 type Stuck string
@@ -278,7 +294,7 @@ func (s *Service) Add(ctx context.Context, user model.User, in AddInput) (Downlo
 
 func fromRow(r db.Download) Download {
 	return Download{Hash: r.Hash, Kind: r.Kind, Title: r.Title, Year: r.Year, Name: r.Name,
-		AddedByName: r.AddedByName, AddedAt: r.AddedAt, State: r.State, Reason: r.Reason, Paused: r.Paused,
+		AddedByName: r.AddedByName, AddedAt: r.AddedAt, State: r.State, Reason: r.Reason, ReasonKey: r.ReasonKey, ReasonN: r.ReasonN, Paused: r.Paused,
 		InOrder: r.InOrder, Seeders: -1}
 }
 
@@ -638,15 +654,16 @@ func (s *Service) AnyOrder(ctx context.Context, hash string) error {
 func (s *Service) check(ctx context.Context, r db.Download, t transmission.Torrent, known bool) error {
 	switch {
 	case !known:
-		r.State, r.Reason = model.StateFailed, "removed from Transmission"
+		r.State = model.StateFailed
+		setKey(&r, ReasonRemoved, 0)
 		return s.store.UpdateDownload(ctx, r)
 	case t.LocalError || t.PercentDone < 1:
 		// A tracker warning shows but doesn't stop a finished download
 		// from being filed; a problem with the data does.
-		if r.Reason == t.Error {
+		if r.Reason == t.Error && r.ReasonKey == "" {
 			return nil
 		}
-		r.Reason = t.Error
+		setText(&r, t.Error)
 		return s.store.UpdateDownload(ctx, r)
 	}
 	return s.file(ctx, r, t)
@@ -656,7 +673,12 @@ func (s *Service) check(ctx context.Context, r db.Download, t transmission.Torre
 func (s *Service) file(ctx context.Context, r db.Download, t transmission.Torrent) error {
 	links, err := library.Plan(r.Kind, r.Title, r.Year, r.Hash, t.Files)
 	if err != nil {
-		r.State, r.Reason = model.StateFailed, err.Error()
+		r.State = model.StateFailed
+		if errors.Is(err, library.ErrNoVideo) {
+			setKey(&r, ReasonNoVideo, 0)
+		} else {
+			setText(&r, err.Error())
+		}
 		return s.store.UpdateDownload(ctx, r)
 	}
 	subs, err := s.store.Subtitles(ctx, r.Hash)
@@ -670,15 +692,18 @@ func (s *Service) file(ctx context.Context, r db.Download, t transmission.Torren
 	}
 	switch {
 	case linkErr != nil:
-		r.State, r.Reason = model.StateFailed, linkErr.Error()
+		r.State = model.StateFailed
+		setText(&r, linkErr.Error())
 	case len(made) == 0:
 		// Every file was there already (another copy of the same thing).
-		r.State, r.Reason = model.StateFiled, "already in the library"
+		r.State = model.StateFiled
+		setKey(&r, ReasonInLibrary, 0)
 	default:
-		r.State, r.Reason = model.StateFiled, ""
+		r.State = model.StateFiled
+		setText(&r, "")
 	}
 	if linkErr == nil && unplaced > 0 {
-		r.Reason = unplacedText(unplaced)
+		setKey(&r, ReasonSubsUnplaced, unplaced)
 	}
 	if err := s.store.UpdateDownload(ctx, r); err != nil {
 		return err
@@ -766,7 +791,8 @@ func (s *Service) Edit(ctx context.Context, hash string, kind model.Kind, title 
 		if err := s.store.DeleteLinks(ctx, hash); err != nil {
 			return err
 		}
-		r.State, r.Reason = model.StateDownloading, ""
+		r.State = model.StateDownloading
+		setText(&r, "")
 	}
 	r.Kind, r.Title, r.Year = kind, clean, year
 	if err := s.store.UpdateDownload(ctx, r); err != nil {

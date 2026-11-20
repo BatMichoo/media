@@ -8,7 +8,6 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -363,18 +362,15 @@ func uploads(c *gin.Context, field, lang string) ([]downloads.Upload, error) {
 	return out, nil
 }
 
-var unplacedReason = regexp.MustCompile(`^(\d+) subtitles? didn't match a video$`)
-
-// reasonText is a download's reason in the page's language where the
-// app wrote it (the rest come from elsewhere and stay as they are).
-func reasonText(l, reason string) string {
-	if m := unplacedReason.FindStringSubmatch(reason); m != nil {
-		n, _ := strconv.Atoi(m[1])
-		key := "downloads.subs_unplaced_many"
-		if n == 1 {
-			key = "downloads.subs_unplaced_one"
-		}
-		return fmt.Sprintf(i18n.T(l, key), n)
+// ReasonText is why a download failed or what to know about it, in the
+// page's language when the app wrote it ("" for nothing to say). Text
+// from Transmission or the file system stays as it came.
+func (d downloadRow) ReasonText() string {
+	switch {
+	case d.ReasonKey == "":
+		return d.Reason
+	case d.ReasonN > 0:
+		return fmt.Sprintf(plural(d.Lang, d.ReasonKey, d.ReasonN), d.ReasonN)
 	}
-	return reason
+	return i18n.T(d.Lang, d.ReasonKey)
 }

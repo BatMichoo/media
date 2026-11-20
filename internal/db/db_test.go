@@ -7,6 +7,7 @@ import (
 	"github.com/BatMichoo/media/internal/db"
 	"github.com/BatMichoo/media/internal/db/dbtest"
 	"github.com/BatMichoo/media/internal/model"
+	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,5 +34,30 @@ func TestInsertDownloadKeepsInOrder(t *testing.T) {
 		assert.Equal(t, inOrder, got.InOrder, hash)
 		assert.Equal(t, model.KindMovie, got.Kind)
 		assert.Equal(t, model.StateDownloading, got.State)
+	}
+}
+
+func TestReasonKeyMigration(t *testing.T) {
+	// Rows from before reason keys get theirs from the English text.
+	d := dbtest.New(t)
+	ctx := context.Background()
+	require.NoError(t, goose.DownToContext(ctx, d.SQL, ".", 4))
+	for hash, reason := range map[string]string{
+		"a": "removed from Transmission", "b": "already in the library", "c": "no video files",
+		"d": "3 subtitles didn't match a video", "e": "1 subtitle didn't match a video", "f": "disk full",
+	} {
+		_, err := d.SQL.ExecContext(ctx, `INSERT INTO downloads (hash, kind, title, added_by, added_by_name, state, reason)
+			VALUES ($1, 'movie', 'X', '6f1c2a3b-0000-4000-8000-000000000001', 'x', 'failed', $2)`, hash, reason)
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.Migrate(ctx, d.SQL))
+	want := map[string][3]any{
+		"a": {"", "reason.removed", 0}, "b": {"", "reason.already_in_library", 0}, "c": {"", "reason.no_video", 0},
+		"d": {"", "reason.subs_unplaced", 3}, "e": {"", "reason.subs_unplaced", 1}, "f": {"disk full", "", 0},
+	}
+	for hash, w := range want {
+		got, err := d.GetDownload(ctx, hash)
+		require.NoError(t, err)
+		assert.Equal(t, w, [3]any{got.Reason, got.ReasonKey, got.ReasonN}, hash)
 	}
 }

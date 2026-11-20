@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/BatMichoo/media/internal/jellyfin"
 	"html/template"
 	"io/fs"
 	"log"
@@ -13,8 +14,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/BatMichoo/media/internal/jellyfin"
 
 	"github.com/BatMichoo/media/internal/i18n"
 	"github.com/BatMichoo/media/internal/static"
@@ -78,9 +77,8 @@ func NewWebRouter(d Deps) (*gin.Engine, error) {
 var funcs = template.FuncMap{
 	"t": i18n.T,
 	// pct is a 0..1 fraction as a whole percentage.
-	"pct":    func(f float64) int { return int(math.Round(f * 100)) },
-	"clock":  clock,
-	"reason": reasonText,
+	"pct":   func(f float64) int { return int(math.Round(f * 100)) },
+	"clock": clock,
 	// add1 is n+1 (1-based numbers from a range over a count).
 	"add1": func(n int) int { return n + 1 },
 	// rate is bytes per second in words.

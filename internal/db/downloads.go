@@ -22,16 +22,18 @@ type Download struct {
 	AddedBy, AddedByName string
 	AddedAt              time.Time
 	State                model.State
-	Reason               string
-	Paused               bool // paused in the app
-	InOrder              bool // downloads its pieces in order (new rows: true)
+	Reason               string // text from elsewhere (Transmission, the file system), or ""
+	ReasonKey            string // or a message key the app wrote, translated when shown
+	ReasonN              int    // the count filled into ReasonKey's message, 0 = none
+	Paused               bool   // paused in the app
+	InOrder              bool   // downloads its pieces in order (new rows: true)
 }
 
-const downloadCols = `hash, kind, title, COALESCE(year, 0), name, added_by, added_by_name, added_at, state, reason, paused, in_order`
+const downloadCols = `hash, kind, title, COALESCE(year, 0), name, added_by, added_by_name, added_at, state, reason, reason_key, reason_n, paused, in_order`
 
 func scanDownload(row interface{ Scan(...any) error }) (Download, error) {
 	var d Download
-	err := row.Scan(&d.Hash, &d.Kind, &d.Title, &d.Year, &d.Name, &d.AddedBy, &d.AddedByName, &d.AddedAt, &d.State, &d.Reason, &d.Paused, &d.InOrder)
+	err := row.Scan(&d.Hash, &d.Kind, &d.Title, &d.Year, &d.Name, &d.AddedBy, &d.AddedByName, &d.AddedAt, &d.State, &d.Reason, &d.ReasonKey, &d.ReasonN, &d.Paused, &d.InOrder)
 	return d, err
 }
 
@@ -44,9 +46,9 @@ func nullYear(y int) any {
 
 // InsertDownload records a new download.
 func (d *DB) InsertDownload(ctx context.Context, dl Download) error {
-	_, err := d.SQL.ExecContext(ctx, `INSERT INTO downloads (hash, kind, title, year, name, added_by, added_by_name, state, reason, paused, in_order)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.AddedBy, dl.AddedByName, dl.State, dl.Reason, dl.Paused, dl.InOrder)
+	_, err := d.SQL.ExecContext(ctx, `INSERT INTO downloads (hash, kind, title, year, name, added_by, added_by_name, state, reason, reason_key, reason_n, paused, in_order)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.AddedBy, dl.AddedByName, dl.State, dl.Reason, dl.ReasonKey, dl.ReasonN, dl.Paused, dl.InOrder)
 	return err
 }
 
@@ -81,11 +83,12 @@ func (d *DB) ListDownloads(ctx context.Context) ([]Download, error) {
 	return d.listDownloads(ctx, "")
 }
 
-// UpdateDownload saves kind, title, year, name, state, reason, paused and
-// in_order.
+// UpdateDownload saves kind, title, year, name, state, the reason, paused
+// and in_order.
 func (d *DB) UpdateDownload(ctx context.Context, dl Download) error {
 	res, err := d.SQL.ExecContext(ctx, `UPDATE downloads SET kind = $2, title = $3, year = $4, name = $5, state = $6, reason = $7,
-		paused = $8, in_order = $9 WHERE hash = $1`, dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.State, dl.Reason, dl.Paused, dl.InOrder)
+		reason_key = $8, reason_n = $9, paused = $10, in_order = $11 WHERE hash = $1`,
+		dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.State, dl.Reason, dl.ReasonKey, dl.ReasonN, dl.Paused, dl.InOrder)
 	if err != nil {
 		return err
 	}

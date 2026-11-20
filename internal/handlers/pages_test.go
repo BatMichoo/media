@@ -240,7 +240,7 @@ func TestDownloadsPage(t *testing.T) {
 			Size: 4_500_000_000, Done: 1_900_000_000, ETA: 75 * time.Minute},
 		{Hash: "b2", Kind: "series", Title: "Severance", State: "filed", SeedingUntil: until, AddedByName: "Bob"},
 		{Hash: "c3", Kind: "movie", Title: "Old", Year: 1999, State: "filed", SeedingUntil: until, SeedingDone: true},
-		{Hash: "d4", Kind: "movie", Title: "Bad", Year: 2000, State: "failed", Reason: "no video files"},
+		{Hash: "d4", Kind: "movie", Title: "Bad", Year: 2000, State: "failed", ReasonKey: downloads.ReasonNoVideo},
 	}
 	_, doc := a.get(t, "/downloads")
 	rows := doc.Find("#downloads-list .download")
@@ -254,7 +254,7 @@ func TestDownloadsPage(t *testing.T) {
 	assert.Contains(t, rows.Eq(1).Text(), "Seeding until 18 Nov 09:30")
 	assert.Contains(t, rows.Eq(2).Text(), "Seeding done")
 	assert.Contains(t, rows.Eq(3).Text(), "Failed")
-	assert.Contains(t, rows.Eq(3).Text(), "no video files")
+	assert.Contains(t, rows.Eq(3).Text(), "No video files")
 	// The sheet's content goes inside the dialog, never replacing it.
 	doc.Find(`[hx-target="#sheet"]`).Each(func(_ int, b *goquery.Selection) {
 		swap, _ := b.Attr("hx-swap")
