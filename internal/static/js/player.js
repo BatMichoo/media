@@ -666,6 +666,9 @@
       // Space on a button reached with the keyboard presses it; after a
       // mouse click it still plays or pauses.
       if (e.key === " " && e.target.closest && e.target.closest("button") && keyboardFocused(e.target)) return;
+      // A remote's OK (Enter) on the picture plays or pauses, as a click on
+      // it does; on a button it stays that button's own press.
+      if (e.key === "Enter" && (focus === root || focus === video)) { e.preventDefault(); toggle(); return; }
       if (inPlayer && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); moveVertical(e.key); return; }
       if (inPlayer && (e.key === "ArrowLeft" || e.key === "ArrowRight") && inBar(focus)) { e.preventDefault(); moveAlongBar(e.key, focus); return; }
       switch (e.key) {
