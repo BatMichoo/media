@@ -581,7 +581,10 @@
       return after ? list[0] : list[list.length - 1];
     }
     function leave(el) {
-      if (!el) return; // nothing that way: stay
+      // Fullscreen only shows the player; the rest of the page is still
+      // there, focusable but invisible, and OK on it would navigate away
+      // mid-video. So focus stays inside the player.
+      if (!el || fsElement()) return; // nothing that way (or fullscreen): stay
       el.focus({ preventScroll: true });
       el.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
@@ -613,6 +616,8 @@
 
     on(document, "keydown", function (e) {
       if (e.ctrlKey || e.metaKey || e.altKey) return; // the browser's (Find, Back…)
+      // An arrow someone else already handled (spatial-nav) isn't ours too.
+      if (e.defaultPrevented && /^Arrow/.test(e.key)) return;
       // The remote's media keys work wherever focus is on the watch page.
       // Play and Pause are separate keys on some remotes, so they don't toggle.
       var mediaKey = true;

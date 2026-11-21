@@ -97,6 +97,9 @@
   document.addEventListener("keydown", function (e) {
     var dir = DIRECTIONS[e.key];
     if (!dir || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    // While anything is fullscreen (the player), the rest of the page is
+    // hidden, so moving focus to it would put it out of sight.
+    if (document.fullscreenElement || document.webkitFullscreenElement) return;
     var f = document.activeElement;
     if (f && f.closest && f.closest(".player")) return;
     if (f && usesKey(f, dir)) return;
