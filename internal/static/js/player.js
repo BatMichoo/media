@@ -557,8 +557,34 @@
     }
 
     // Up and Down walk between the picture, the seek bar and the buttons
-    // (a remote has no mouse and no Tab). Left and Right walk along the
-    // buttons; on the picture and the seek bar they still skip.
+    // (a remote has no mouse and no Tab), and leave the player at either
+    // end: Down from the buttons to what follows it (the episode list), Up
+    // from the picture to what precedes it (the header). spatial-nav takes
+    // over from there; it leaves keys alone while focus is in the player.
+    // Left and Right walk along the buttons; on the picture and the seek
+    // bar they still skip.
+    var PRESSABLE = "a[href], button, summary, input, select, textarea, [tabindex]";
+    function pressable(el) {
+      if (root.contains(el) || el.disabled || el.tabIndex < 0 || el.closest("[hidden], [inert]")) return false;
+      var r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return false;
+      var cs = getComputedStyle(el);
+      return cs.visibility !== "hidden" && cs.display !== "none";
+    }
+    // outside picks the nearest pressable element after (or before) the
+    // player in the page's order.
+    function outside(after) {
+      var side = after ? Node.DOCUMENT_POSITION_FOLLOWING : Node.DOCUMENT_POSITION_PRECEDING;
+      var list = Array.prototype.filter.call(document.querySelectorAll(PRESSABLE), function (el) {
+        return (root.compareDocumentPosition(el) & side) && pressable(el);
+      });
+      return after ? list[0] : list[list.length - 1];
+    }
+    function leave(el) {
+      if (!el) return; // nothing that way: stay
+      el.focus({ preventScroll: true });
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
     function barStops() {
       return Array.prototype.filter.call(root.querySelectorAll(".player-bar button, .player-bar input"), function (el) {
         var r = el.getBoundingClientRect();
@@ -573,9 +599,11 @@
       if (key === "ArrowDown") {
         if (!inControls(f)) focusKeyboard(seek);
         else if (f === seek) focusKeyboard(root.querySelector('.player-bar [data-action="toggle"]') || barStops()[0]);
+        else if (inBar(f)) leave(outside(true));
       } else {
         if (inBar(f)) focusKeyboard(seek);
         else if (inControls(f) || f.closest(".player-center")) focusKeyboard(root);
+        else if (f === root) leave(outside(false));
       }
     }
     function moveAlongBar(key, f) {

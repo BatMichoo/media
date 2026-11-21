@@ -472,7 +472,8 @@ func TestAddSubtitleErrorNamesFile(t *testing.T) {
 }
 
 // A remote has no mouse: every card must be one focusable link, and each
-// browsing page must load the script that moves focus with the arrow keys.
+// browsing page must load the script that moves focus with the arrow keys
+// (the watch page too: its header and episode list are reached that way).
 func TestBrowsePagesFocusable(t *testing.T) {
 	a := newApp(t)
 	dune := movie("Dune", "Dune (2021)", 2021)
@@ -486,7 +487,7 @@ func TestBrowsePagesFocusable(t *testing.T) {
 	a.cat.extras[dune.ID] = []jellyfin.Item{{ID: id("x"), Type: "Video", Name: "Behind the scenes"}}
 	a.w.cont = []watching.Entry{{Item: dune}}
 
-	for _, path := range []string{"/", "/movies", "/shows", "/movies/" + dune.ID, "/shows/" + sev.ID} {
+	for _, path := range []string{"/", "/movies", "/shows", "/movies/" + dune.ID, "/shows/" + sev.ID, "/watch/" + dune.ID} {
 		w, doc := a.get(t, path)
 		require.Equal(t, 200, w.Code, path)
 		assert.Equal(t, 1, doc.Find(`script[src^="/static/media/js/spatial-nav.js"]`).Length(), path)
