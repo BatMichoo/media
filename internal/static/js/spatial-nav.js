@@ -2,9 +2,9 @@
 // keyboard) moves focus to the nearest link or button in the pressed
 // direction, so every card and button can be reached without a mouse or Tab.
 //
-// It stays out of the way of keys that already mean something: it does
-// nothing while typing in a field (arrows move the caret, change a select
-// or a slider) and inside the player, which owns the arrows there.
+// It stays out of the way of keys that already mean something: a text
+// field keeps Left/Right (caret), a select Up/Down, a slider Left/Right,
+// and the player owns every arrow inside it.
 (function () {
   "use strict";
   // htmx runs this file again each time it swaps a page in; the listener is
@@ -25,6 +25,24 @@
     if (r.width <= 0 || r.height <= 0) return false;
     var cs = getComputedStyle(el);
     return cs.visibility !== "hidden" && cs.display !== "none";
+  }
+
+  var TEXT_INPUT = /^(text|search|email|number|password|url|tel)$/;
+
+  // usesKey: the focused field needs this arrow for itself. Text fields use
+  // Left and Right (caret), a select uses Up and Down (options); everything
+  // else (file, checkbox, button inputs, links) hands every arrow to us, or
+  // focus would be trapped in the subtitle upload form.
+  function usesKey(el, dir) {
+    var horizontal = dir === "left" || dir === "right";
+    if (el.isContentEditable) return true;
+    if (el.tagName === "TEXTAREA") return true;
+    if (el.tagName === "SELECT") return !horizontal;
+    if (el.tagName === "INPUT") {
+      if (el.type === "range") return horizontal;
+      return TEXT_INPUT.test(el.type) && horizontal;
+    }
+    return false;
   }
 
   function candidates() {
@@ -80,7 +98,8 @@
     var dir = DIRECTIONS[e.key];
     if (!dir || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
     var f = document.activeElement;
-    if (f && f.closest && f.closest("input, textarea, select, [contenteditable], .player")) return;
+    if (f && f.closest && f.closest(".player")) return;
+    if (f && usesKey(f, dir)) return;
     var list = candidates();
     var onPage = !f || f === document.body || f === document.documentElement;
     var next = onPage ? first(list) : best(f, list, dir);

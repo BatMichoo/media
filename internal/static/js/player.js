@@ -598,10 +598,19 @@
       }
       if (mediaKey) { e.preventDefault(); wake(); return; }
       if (e.target.closest && e.target.closest("input, textarea, select, [contenteditable]")) {
-        // The volume slider keeps Left and Right for the volume; Up and
-        // Down are how focus leaves it.
+        // The volume slider keeps Left and Right for the volume until its
+        // end; Up and Down are how focus leaves it.
         if (e.target.matches && e.target.matches(".player-volume") && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
           e.preventDefault(); wake(); moveVertical(e.key); return;
+        }
+        // At the end of its range a Right (or Left) can't change the volume
+        // any more, so it moves on to the next button: without this the
+        // buttons after the slider (settings, fullscreen) are out of reach.
+        // The saved volume starts at the maximum, so Right usually passes at once.
+        var vol = e.target;
+        if (vol.matches && vol.matches(".player-volume") &&
+            ((e.key === "ArrowRight" && +vol.value >= +vol.max) || (e.key === "ArrowLeft" && +vol.value <= +vol.min))) {
+          e.preventDefault(); wake(); moveAlongBar(e.key, vol); return;
         }
         if (e.key !== "Escape") return;
       }
