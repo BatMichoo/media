@@ -556,9 +556,53 @@
       try { return el.matches(":focus-visible"); } catch (_) { return false; } // older Safari
     }
 
+    // Up and Down walk between the picture, the seek bar and the buttons
+    // (a remote has no mouse and no Tab). Left and Right walk along the
+    // buttons; on the picture and the seek bar they still skip.
+    function barStops() {
+      return Array.prototype.filter.call(root.querySelectorAll(".player-bar button, .player-bar input"), function (el) {
+        var r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0; // the narrow layout hides some
+      });
+    }
+    function inControls(el) { return !!el.closest(".player-controls"); }
+    function inBar(el) { return !!el.closest(".player-bar"); }
+    function focusKeyboard(el) { if (el) el.focus({ preventScroll: true }); }
+    function moveVertical(key) {
+      var f = document.activeElement;
+      if (key === "ArrowDown") {
+        if (!inControls(f)) focusKeyboard(seek);
+        else if (f === seek) focusKeyboard(root.querySelector('.player-bar [data-action="toggle"]') || barStops()[0]);
+      } else {
+        if (inBar(f)) focusKeyboard(seek);
+        else if (inControls(f) || f.closest(".player-center")) focusKeyboard(root);
+      }
+    }
+    function moveAlongBar(key, f) {
+      var stops = barStops(), i = stops.indexOf(f), j = i + (key === "ArrowRight" ? 1 : -1);
+      if (i >= 0 && stops[j]) focusKeyboard(stops[j]); // the ends stay put
+    }
+
     on(document, "keydown", function (e) {
       if (e.ctrlKey || e.metaKey || e.altKey) return; // the browser's (Find, Back…)
+      // The remote's media keys work wherever focus is on the watch page.
+      // Play and Pause are separate keys on some remotes, so they don't toggle.
+      var mediaKey = true;
+      switch (e.key) {
+        case "MediaPlayPause": toggle(); break;
+        case "MediaPlay": if (video.paused) toggle(); break;
+        case "MediaPause": if (!video.paused) toggle(); break;
+        case "MediaFastForward": jump(10); flash("right", 10); break;
+        case "MediaRewind": jump(-10); flash("left", -10); break;
+        default: mediaKey = false;
+      }
+      if (mediaKey) { e.preventDefault(); wake(); return; }
       if (e.target.closest && e.target.closest("input, textarea, select, [contenteditable]")) {
+        // The volume slider keeps Left and Right for the volume; Up and
+        // Down are how focus leaves it.
+        if (e.target.matches && e.target.matches(".player-volume") && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+          e.preventDefault(); wake(); moveVertical(e.key); return;
+        }
         if (e.key !== "Escape") return;
       }
       // The page's own keys stay the page's: Space and arrows act on the
@@ -585,6 +629,8 @@
       // Space on a button reached with the keyboard presses it; after a
       // mouse click it still plays or pauses.
       if (e.key === " " && e.target.closest && e.target.closest("button") && keyboardFocused(e.target)) return;
+      if (inPlayer && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); moveVertical(e.key); return; }
+      if (inPlayer && (e.key === "ArrowLeft" || e.key === "ArrowRight") && inBar(focus)) { e.preventDefault(); moveAlongBar(e.key, focus); return; }
       switch (e.key) {
         case " ": case "k": e.preventDefault(); toggle(); break;
         case "ArrowLeft": e.preventDefault(); jump(-10); break;

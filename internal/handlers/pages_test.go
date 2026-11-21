@@ -470,3 +470,31 @@ func TestAddSubtitleErrorNamesFile(t *testing.T) {
 	assert.Equal(t, 422, w.Code)
 	assert.Contains(t, doc.Find(".form-error").Text(), "x.srt")
 }
+
+// A remote has no mouse: every card must be one focusable link, and each
+// browsing page must load the script that moves focus with the arrow keys.
+func TestBrowsePagesFocusable(t *testing.T) {
+	a := newApp(t)
+	dune := movie("Dune", "Dune (2021)", 2021)
+	a.cat.items[dune.ID] = dune
+	a.cat.latest["Movie"] = []jellyfin.Item{dune}
+	sev := jellyfin.Item{ID: id("sev"), Type: "Series", Name: "Severance", Path: "/data/library/Shows/Severance"}
+	a.cat.items[sev.ID] = sev
+	a.cat.latest["Series"] = []jellyfin.Item{sev}
+	a.cat.seasons[sev.ID] = []jellyfin.Item{{ID: id("s1"), Type: "Season", Name: "Season 1", Index: 1}}
+	a.cat.episodes[sev.ID] = []jellyfin.Item{{ID: id("e1"), Type: "Episode", Name: "One", ParentIndex: 1, Index: 1}}
+	a.cat.extras[dune.ID] = []jellyfin.Item{{ID: id("x"), Type: "Video", Name: "Behind the scenes"}}
+	a.w.cont = []watching.Entry{{Item: dune}}
+
+	for _, path := range []string{"/", "/movies", "/shows", "/movies/" + dune.ID, "/shows/" + sev.ID} {
+		w, doc := a.get(t, path)
+		require.Equal(t, 200, w.Code, path)
+		assert.Equal(t, 1, doc.Find(`script[src^="/static/media/js/spatial-nav.js"]`).Length(), path)
+		doc.Find(".media-card").Each(func(_ int, s *goquery.Selection) {
+			assert.True(t, s.Is("a[href]"), "%s: a card is the link itself", path)
+			assert.Equal(t, 0, s.Find("a, button").Length(), "%s: one focus stop per card", path)
+		})
+	}
+	_, doc := a.get(t, "/")
+	assert.Equal(t, 3, doc.Find(".media-card").Length(), "continue, movies, shows")
+}

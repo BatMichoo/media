@@ -30,8 +30,8 @@
 .unavailable, .link-problem, .unreachable { padding: 1rem 1.25rem; border-radius: var(--radius); background: var(--bg-light); }
 .link-problem { color: var(--danger); margin-bottom: 1rem; }
 
-/* Big, clear focus for keyboards (and later the TV remote). */
-a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+/* Big, clear focus for keyboards and the TV remote, readable from a sofa. */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
   outline: 3px solid var(--highlight-sec); outline-offset: 3px; }
 
 /* Rows and grids of cards. */
@@ -50,8 +50,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 .media-card { min-width: 0; }
 .card-link { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; color: var(--text);
-  text-decoration: none; border-radius: var(--radius); }
-.card-link:focus-visible { outline-offset: 4px; }
+  text-decoration: none; border-radius: var(--radius); transition: transform 0.15s; }
+/* A focused card grows a little so it stands out from across a room. The
+   rows' padding leaves room for it. */
+.card-link:focus-visible { outline-offset: 4px; transform: scale(1.04); }
+@media (prefers-reduced-motion: reduce) { .card-link { transition: none; } .card-link:focus-visible { transform: none; } }
 .card-text { display: flex; flex-direction: column; min-width: 0; padding: 0 0.15rem; }
 .card-title { font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-sub { font-size: 0.85rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -108,7 +111,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .episode a { display: grid; grid-template-columns: 9rem auto minmax(0, 1fr) auto; gap: 1rem; align-items: center;
   padding: 0.5rem; padding-right: 1rem; border-radius: var(--radius); color: var(--text); text-decoration: none;
   background: var(--bg-light); }
-.episode a:hover { background: var(--hover); }
+.episode a:hover, .episode a:focus-visible { background: var(--hover); }
 .episode-thumb .art { box-shadow: none; border-radius: calc(var(--radius) * 0.7); }
 
 /* Subtitle uploads: a quiet "Add subtitles" that opens a small form. */

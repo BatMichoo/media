@@ -1,15 +1,19 @@
-{{/* A poster card. Input: card. */}}
+{{/* A poster card. The card is the link itself: one focus stop per card,
+   which is what arrow-key navigation (remote or keyboard) steps through.
+   Input: card. */}}
 {{ define "media/card" }}
-<article class="media-card{{ if .Wide }} wide{{ end }}">
-  <a class="card-link" href="{{ .Href }}">
-    {{ template "media/art" (themeDict "Image" .Image "Title" .Title "Hue" .Hue "Fraction" .Fraction "HasBar" .HasBar) }}
-    <span class="card-text">
-      <span class="card-title">{{ .Title }}</span>
-      {{ if .Sub }}<span class="card-sub">{{ .Sub }}</span>{{ end }}
-    </span>
-  </a>
-</article>
+<a class="media-card card-link{{ if .Wide }} wide{{ end }}" href="{{ .Href }}">
+  {{ template "media/art" (themeDict "Image" .Image "Title" .Title "Hue" .Hue "Fraction" .Fraction "HasBar" .HasBar) }}
+  <span class="card-text">
+    <span class="card-title">{{ .Title }}</span>
+    {{ if .Sub }}<span class="card-sub">{{ .Sub }}</span>{{ end }}
+  </span>
+</a>
 {{ end }}
+
+{{/* Arrow keys move focus between the page's links and buttons. htmx runs
+   the script again on each page swap; the script guards against that. */}}
+{{ define "media/spatial-nav" }}<script src="/static/media/js/spatial-nav.js?v={{ assetVersion }}"></script>{{ end }}
 
 {{/* A picture frame: the picture over a tint with the title, so a missing
    or broken picture still looks intended. The progress bar sits inside the
