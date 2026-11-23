@@ -72,7 +72,7 @@
     <div>
       <label for="subs-part-{{ .ID }}">{{ t .Lang "subs.part" }}</label>
       <select id="subs-part-{{ .ID }}" name="part">
-        {{ $lang := .Lang }}{{ range $i := .Parts }}<option value="{{ add1 $i }}">{{ printf (t $lang "subs.part_n") (add1 $i) }}</option>{{ end }}
+        {{ $lang := .Lang }}{{ range $n := seq .Parts }}<option value="{{ $n }}">{{ printf (t $lang "subs.part_n") $n }}</option>{{ end }}
       </select>
     </div>
     {{ end }}

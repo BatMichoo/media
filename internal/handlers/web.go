@@ -79,14 +79,24 @@ var funcs = template.FuncMap{
 	// pct is a 0..1 fraction as a whole percentage.
 	"pct":   func(f float64) int { return int(math.Round(f * 100)) },
 	"clock": clock,
-	// add1 is n+1 (1-based numbers from a range over a count).
-	"add1": func(n int) int { return n + 1 },
+	// seq is 1..n, for numbered choices (ranging over a plain int needs
+	// Go 1.24, and go.mod says 1.23).
+	"seq": seq,
 	// rate is bytes per second in words.
 	"rate":         rateWords,
 	"size":         sizeWords,
 	"timeLeft":     timeLeft,
 	"when":         func(t time.Time) string { return t.Local().Format("2 Jan 15:04") },
 	"assetVersion": func() string { return staticVersion },
+}
+
+// seq returns 1, 2, ..., n (empty when n < 1).
+func seq(n int) []int {
+	out := make([]int, 0, max(n, 0))
+	for i := 1; i <= n; i++ {
+		out = append(out, i)
+	}
+	return out
 }
 
 // rateWords is bytes per second in words.
