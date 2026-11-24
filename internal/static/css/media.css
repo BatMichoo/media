@@ -144,6 +144,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 /* Add and downloads. */
 .kind { border: 0; padding: 0; display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .kind legend { margin-bottom: 0.25rem; }
+/* The Seed sheet's choices take the whole width of the sheet's grid. */
+.seed-form > fieldset { grid-column: 1 / -1; }
 .hint { color: var(--text-muted); }
 .check { display: flex; gap: 0.5rem; align-items: center; }
 .danger { background: var(--danger); }

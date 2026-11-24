@@ -113,12 +113,14 @@
 {{ define "media/seed-sheet" }}
 <div class="sheet">
   {{ template "theme/sheet-heading" .Heading }}
-  <form class="sheet-form" hx-post="/downloads/{{ .Hash }}/seed" hx-target="#downloads-list" hx-swap="outerHTML"
+  <form class="sheet-form seed-form" hx-post="/downloads/{{ .Hash }}/seed" hx-target="#downloads-list" hx-swap="outerHTML"
     hx-on::after-request="themeHideSheet()">
-    <p>{{ .Message }}</p>
-    <label class="check"><input type="radio" name="for" value="24h" /> {{ t .Lang "seed.24h" }}</label>
-    <label class="check"><input type="radio" name="for" value="72h" checked /> {{ t .Lang "seed.72h" }}</label>
-    <label class="check"><input type="radio" name="for" value="none" /> {{ t .Lang "seed.none" }}</label>
+    <fieldset class="kind">
+      <legend>{{ .Message }}</legend>
+      <label class="chip"><input type="radio" name="for" value="24h" /><span>{{ t .Lang "seed.24h" }}</span></label>
+      <label class="chip"><input type="radio" name="for" value="72h" checked /><span>{{ t .Lang "seed.72h" }}</span></label>
+      <label class="chip"><input type="radio" name="for" value="none" /><span>{{ t .Lang "seed.none" }}</span></label>
+    </fieldset>
     <div class="sheet-actions">
       <button type="button" class="sheet-cancel" onClick="themeHideSheet();">{{ themeT .Lang "cancel" }}</button>
       <button type="submit" class="btn-primary sheet-save">{{ t .Lang "seed" }}</button>
