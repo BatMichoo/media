@@ -55,6 +55,7 @@
       <div class="download-foot">
         <div class="download-meta">
           {{ if .SeedingDone }}<span>{{ t .Lang "downloads.seeding_done" }}</span>
+          {{ else if .SeedingNoLimit }}<span>{{ t .Lang "downloads.seeding_no_limit" }}</span>
           {{ else if not .SeedingUntil.IsZero }}<span>{{ printf (t .Lang "downloads.seeding_until") (when .SeedingUntil) }}</span>{{ end }}
           {{ if .AddedByName }}<span>{{ printf (t .Lang "downloads.added_by") .AddedByName }}</span>{{ end }}
         </div>
@@ -64,6 +65,7 @@
           {{ else if .CanPause }}
           <button type="button" class="btn-secondary pause" hx-post="/downloads/{{ .Hash }}/pause" hx-target="#downloads-list" hx-swap="outerHTML">❚❚ {{ t .Lang "pause" }}</button>
           {{ end }}
+          {{ if .CanSeed }}<button type="button" class="btn-secondary seed" hx-get="/downloads/{{ .Hash }}/seed" hx-target="#sheet" hx-swap="innerHTML">↑ {{ t .Lang "seed" }}</button>{{ end }}
           <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/edit" hx-target="#sheet" hx-swap="innerHTML">{{ t .Lang "edit" }}</button>
           <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/remove" hx-target="#sheet" hx-swap="innerHTML">{{ t .Lang "remove" }}</button>
         </div>
@@ -102,6 +104,24 @@
     <div class="sheet-actions">
       <button type="button" class="sheet-cancel" onClick="themeHideSheet();">{{ themeT .Lang "cancel" }}</button>
       <button type="submit" class="btn-primary sheet-save danger">{{ t .Lang "remove" }}</button>
+    </div>
+  </form>
+</div>
+{{ end }}
+
+{{/* Seed a finished download again, in the sheet. Input: seedView. */}}
+{{ define "media/seed-sheet" }}
+<div class="sheet">
+  {{ template "theme/sheet-heading" .Heading }}
+  <form class="sheet-form" hx-post="/downloads/{{ .Hash }}/seed" hx-target="#downloads-list" hx-swap="outerHTML"
+    hx-on::after-request="themeHideSheet()">
+    <p>{{ .Message }}</p>
+    <label class="check"><input type="radio" name="for" value="24h" /> {{ t .Lang "seed.24h" }}</label>
+    <label class="check"><input type="radio" name="for" value="72h" checked /> {{ t .Lang "seed.72h" }}</label>
+    <label class="check"><input type="radio" name="for" value="none" /> {{ t .Lang "seed.none" }}</label>
+    <div class="sheet-actions">
+      <button type="button" class="sheet-cancel" onClick="themeHideSheet();">{{ themeT .Lang "cancel" }}</button>
+      <button type="submit" class="btn-primary sheet-save">{{ t .Lang "seed" }}</button>
     </div>
   </form>
 </div>

@@ -499,3 +499,53 @@ func TestBrowsePagesFocusable(t *testing.T) {
 	_, doc := a.get(t, "/")
 	assert.Equal(t, 3, doc.Find(".media-card").Length(), "continue, movies, shows")
 }
+
+func TestSeedAgain(t *testing.T) {
+	a := newApp(t)
+	until := time.Now().Add(time.Hour)
+	a.dl.list = []downloads.Download{
+		{Hash: "a1", Kind: "movie", Title: "Dune", Year: 2021, State: "filed", Live: true, SeedingUntil: until, SeedingDone: true},
+		{Hash: "b2", Kind: "movie", Title: "Heat", Year: 1995, State: "filed", Live: true, SeedingUntil: until},
+		{Hash: "c3", Kind: "movie", Title: "Gone", Year: 1995, State: "filed", SeedingNoLimit: true, Live: true},
+		{Hash: "d4", Kind: "movie", Title: "Lost", Year: 1995, State: "filed", SeedingUntil: until, SeedingDone: true},
+	}
+	_, doc := a.get(t, "/downloads")
+	rows := doc.Find(".download")
+	seed := func(i int) string { v, _ := rows.Eq(i).Find("button.seed").Attr("hx-get"); return v }
+	assert.Equal(t, "/downloads/a1/seed", seed(0), "seeding done")
+	assert.Equal(t, "", seed(1), "still seeding")
+	assert.Equal(t, "", seed(2), "seeding with no limit")
+	assert.Equal(t, "", seed(3), "Transmission doesn't have it")
+	assert.Contains(t, rows.Eq(2).Find(".download-meta").Text(), "Seeding, no limit")
+	assert.Equal(t, "/downloads/c3/pause", func() string { v, _ := rows.Eq(2).Find("button.pause").Attr("hx-post"); return v }())
+
+	_, doc = a.get(t, "/downloads/a1/seed", "HX-Request", "true")
+	form := doc.Find("form")
+	assert.Equal(t, "/downloads/a1/seed", form.AttrOr("hx-post", ""))
+	radios := form.Find(`input[type=radio][name=for]`)
+	require.Equal(t, 3, radios.Length())
+	var values []string
+	radios.Each(func(_ int, r *goquery.Selection) { values = append(values, r.AttrOr("value", "")) })
+	assert.Equal(t, []string{"24h", "72h", "none"}, values)
+	_, checked := radios.Eq(1).Attr("checked")
+	assert.True(t, checked, "72 hours is picked first")
+	assert.Contains(t, form.Text(), "Dune")
+	assert.Contains(t, form.Text(), "No limit")
+
+	for _, v := range []string{"24h", "72h", "none"} {
+		w, doc := a.post(t, "/downloads/a1/seed", url.Values{"for": {v}}, "HX-Request", "true")
+		assert.Equal(t, 200, w.Code)
+		assert.Equal(t, 1, doc.Find("#downloads-list").Length(), "answers with the list")
+	}
+	assert.Equal(t, []string{"seed 24h0m0s a1", "seed 72h0m0s a1", "seed 0s a1"}, a.dl.paused)
+
+	w, _ := a.post(t, "/downloads/a1/seed", url.Values{"for": {"5h"}}, "HX-Request", "true")
+	assert.Equal(t, 400, w.Code)
+	w, _ = a.post(t, "/downloads/a1/seed", url.Values{}, "HX-Request", "true")
+	assert.Equal(t, 400, w.Code)
+	assert.Len(t, a.dl.paused, 3, "nothing seeded on a bad choice")
+	w, _ = a.post(t, "/downloads/zz/seed", url.Values{"for": {"24h"}}, "HX-Request", "true")
+	assert.Equal(t, 404, w.Code)
+	w, _ = a.get(t, "/downloads/zz/seed", "HX-Request", "true")
+	assert.Equal(t, 404, w.Code)
+}

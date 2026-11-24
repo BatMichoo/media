@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BatMichoo/media/internal/model"
 
@@ -311,7 +312,36 @@ func (h *web) postRemove(c *gin.Context) {
 	h.listWithToast(c, "toast.removed")
 }
 
-// pauseOrResume runs Pause, Resume, StartNow or AnyOrder and answers with
+type seedView struct {
+	Lang, Hash, Message string
+	Heading             theme.SheetHeading
+}
+
+func (h *web) getSeed(c *gin.Context) {
+	d, ok := h.find(c)
+	if !ok {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	l := lang(c)
+	h.fragment(c, http.StatusOK, "media/seed-sheet", seedView{Lang: l, Hash: d.Hash,
+		Message: fmt.Sprintf(i18n.T(l, "seed.message"), downloadRow{Download: d}.Label()),
+		Heading: theme.SheetHeading{Title: i18n.T(l, "seed.title"), Lang: l}})
+}
+
+// seedLimits are the seeding times the Seed sheet offers; 0 = no limit.
+var seedLimits = map[string]time.Duration{"24h": 24 * time.Hour, "72h": 72 * time.Hour, "none": 0}
+
+func (h *web) postSeed(c *gin.Context) {
+	limit, ok := seedLimits[c.PostForm("for")]
+	if !ok {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	h.pauseOrResume(c, func(ctx context.Context, hash string) error { return h.d.Downloads.Seed(ctx, hash, limit) })
+}
+
+// pauseOrResume runs Pause, Resume, StartNow, AnyOrder or Seed and answers with
 // the refreshed list.
 func (h *web) pauseOrResume(c *gin.Context, do func(ctx context.Context, hash string) error) {
 	err := do(c.Request.Context(), c.Param("hash"))

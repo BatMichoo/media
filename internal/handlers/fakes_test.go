@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BatMichoo/media/internal/downloads"
 	"github.com/BatMichoo/media/internal/jellyfin"
@@ -119,6 +120,9 @@ func (f *fakeDownloads) StartNow(_ context.Context, hash string) error {
 }
 func (f *fakeDownloads) AnyOrder(_ context.Context, hash string) error {
 	return f.pauseCall("any-order", hash)
+}
+func (f *fakeDownloads) Seed(_ context.Context, hash string, limit time.Duration) error {
+	return f.pauseCall("seed "+limit.String(), hash)
 }
 func (f *fakeDownloads) pauseCall(what, hash string) error {
 	for _, d := range f.list {
