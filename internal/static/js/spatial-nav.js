@@ -21,6 +21,13 @@
   function reachable(el) {
     if (el.disabled || el.tabIndex < 0 || el.closest("[hidden], [inert]")) return false;
     if (el.tagName === "INPUT" && el.type === "hidden") return false;
+    // A closed <details> (the header's Settings menu) hides its content but
+    // newer browsers still give it a size and place, so without this the
+    // nearest pick can be a button that can't take focus, and focus stays
+    // stuck. Its own <summary> stays reachable.
+    var closed = el.closest("details:not([open])");
+    if (closed && !(el.tagName === "SUMMARY" && el.parentElement === closed)) return false;
+    if (el.checkVisibility && !el.checkVisibility()) return false;
     var r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return false;
     var cs = getComputedStyle(el);
@@ -49,9 +56,11 @@
     return Array.prototype.filter.call(document.querySelectorAll(FOCUSABLE), reachable);
   }
 
-  // best picks the candidate nearest to `from` in `dir`. Distance along the
-  // direction counts once, sideways drift twice, so a card straight above
-  // beats a nearer one far off to the side.
+  // best picks the candidate nearest to `from` in `dir`. The pages are rows
+  // of cards: Up and Down go to the nearest row first (sideways distance
+  // counts half), Left and Right stay in the same row when anything there
+  // lies that way (sideways drift counts twice, and leaving the row costs
+  // more than any distance on screen).
   function best(from, list, dir) {
     var a = from.getBoundingClientRect();
     var ax = a.left + a.width / 2, ay = a.top + a.height / 2;
@@ -65,7 +74,13 @@
       else if (dir === "left") { if (bx >= ax) return; along = Math.max(0, a.left - b.right); across = Math.abs(by - ay); }
       else if (dir === "down") { if (by <= ay) return; along = Math.max(0, b.top - a.bottom); across = Math.abs(bx - ax); }
       else { if (by >= ay) return; along = Math.max(0, a.top - b.bottom); across = Math.abs(bx - ax); }
-      var score = along + 2 * across;
+      var score;
+      if (dir === "left" || dir === "right") {
+        var sameRow = b.top < a.bottom && b.bottom > a.top;
+        score = along + 2 * across + (sameRow ? 0 : 1e6);
+      } else {
+        score = along + across / 2;
+      }
       if (score < pickScore) { pick = el; pickScore = score; }
     });
     return pick;
