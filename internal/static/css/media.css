@@ -53,7 +53,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   text-decoration: none; border-radius: var(--radius); transition: transform 0.15s; }
 /* A focused card grows a little so it stands out from across a room. The
    rows' padding leaves room for it. */
-.card-link:focus-visible { outline-offset: 4px; transform: scale(1.04); }
+/* One ring, around the picture: the card's own outline is made transparent
+   (it still shows in forced-colours mode) so it doesn't draw a second one. */
+.card-link:focus-visible { outline-color: transparent; transform: scale(1.04); }
 @media (prefers-reduced-motion: reduce) { .card-link { transition: none; } .card-link:focus-visible { transform: none; } }
 .card-text { display: flex; flex-direction: column; min-width: 0; padding: 0 0.15rem; }
 .card-title { font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -76,7 +78,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .art:has(.bar)::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
   background: linear-gradient(to top, rgb(0 0 0 / 0.6), transparent 40%); }
 .card-link .art { transition: box-shadow 0.15s; }
-.card-link:hover .art, .card-link:focus-visible .art { box-shadow: 0 0 0 2px var(--highlight-sec), var(--shadow); }
+.card-link:hover .art { box-shadow: 0 0 0 2px var(--highlight-sec), var(--shadow); }
+.card-link:focus-visible .art { box-shadow: 0 0 0 3px var(--highlight-sec), var(--shadow); }
 .card-link:hover .art-img, .card-link:focus-visible .art-img { transform: scale(1.05); }
 
 /* Watched share. In a frame it floats over the picture's bottom edge. */
