@@ -1401,3 +1401,104 @@ func TestLibraryUploadKeepsTorrentsLabelledSubtitle(t *testing.T) {
 	assert.Contains(t, e.linkRows(t, "h1"), dir+"Dune (2021).forced.bg.srt")
 	assert.Equal(t, "full", e.read(t, dir+"Dune (2021).bg.srt"))
 }
+
+// seededOut adds a movie that finished 100 hours ago and was filed, its
+// seeding time long over and the torrent stopped.
+func (e *env) seededOut(t *testing.T, hash string) {
+	t.Helper()
+	e.addMovie(t, hash, "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: hash, PercentDone: 1, Files: []transmission.File{e.file(t, hash, "d/d.mkv")},
+		DoneDate: e.now.Add(-100 * time.Hour), Stopped: true})
+	require.NoError(t, e.s.Poll(context.Background()))
+	d := e.get(t, hash)
+	require.EqualValues(t, "filed", d.State)
+	require.True(t, d.SeedingDone)
+	require.True(t, d.CanSeed())
+}
+
+func TestSeedForChosenTime(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.seededOut(t, "h1")
+
+	require.NoError(t, e.s.Seed(ctx, "h1", 24*time.Hour))
+	assert.Equal(t, []string{"h1"}, e.t.started)
+	d := e.get(t, "h1")
+	assert.True(t, d.SeedingUntil.Equal(e.now.Add(24*time.Hour)), d.SeedingUntil)
+	assert.False(t, d.SeedingDone)
+	assert.False(t, d.SeedingNoLimit)
+	assert.False(t, d.CanSeed())
+	assert.True(t, d.CanPause())
+
+	start := e.now
+	e.now = start.Add(23 * time.Hour)
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Empty(t, e.t.stopped, "inside the chosen time")
+
+	e.now = start.Add(25 * time.Hour)
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Equal(t, []string{"h1"}, e.t.stopped)
+	d = e.get(t, "h1")
+	assert.True(t, d.SeedingDone)
+	assert.True(t, d.CanSeed(), "can be seeded again")
+}
+
+func TestSeedNoLimit(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.seededOut(t, "h1")
+
+	require.NoError(t, e.s.Seed(ctx, "h1", 0))
+	e.now = e.now.Add(1000 * time.Hour)
+	require.NoError(t, e.s.Poll(ctx))
+	assert.Empty(t, e.t.stopped)
+	d := e.get(t, "h1")
+	assert.True(t, d.SeedingNoLimit)
+	assert.False(t, d.SeedingDone)
+	assert.True(t, d.CanPause())
+
+	// Paused, then resumed: still no limit.
+	require.NoError(t, e.s.Pause(ctx, "h1"))
+	require.NoError(t, e.s.Resume(ctx, "h1"))
+	assert.Equal(t, []string{"h1", "h1"}, e.t.started)
+	assert.True(t, e.get(t, "h1").SeedingNoLimit)
+}
+
+func TestSeedPauseResume(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.seededOut(t, "h1")
+	require.NoError(t, e.s.Pause(ctx, "h1"))
+	require.True(t, e.get(t, "h1").CanSeed(), "paused past its time can be seeded")
+
+	// Seeding a paused one clears the pause.
+	require.NoError(t, e.s.Seed(ctx, "h1", 72*time.Hour))
+	assert.False(t, e.get(t, "h1").Paused)
+	start := e.now
+
+	require.NoError(t, e.s.Pause(ctx, "h1"))
+	e.now = start.Add(10 * time.Hour)
+	require.NoError(t, e.s.Resume(ctx, "h1"))
+	assert.Equal(t, []string{"h1", "h1"}, e.t.started, "resumed inside the chosen time")
+
+	require.NoError(t, e.s.Pause(ctx, "h1"))
+	e.now = start.Add(73 * time.Hour)
+	require.NoError(t, e.s.Resume(ctx, "h1"))
+	assert.Equal(t, []string{"h1", "h1"}, e.t.started, "past the chosen time it stays stopped")
+	assert.True(t, e.get(t, "h1").SeedingDone)
+}
+
+func TestSeedRefused(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.5})
+	assert.ErrorIs(t, e.s.Seed(ctx, "h1", 24*time.Hour), ErrInvalid, "not finished")
+	assert.ErrorIs(t, e.s.Seed(ctx, "nope", 24*time.Hour), ErrNotFound)
+	assert.ErrorIs(t, e.s.Seed(ctx, "h1", -time.Hour), ErrInvalid)
+
+	e.seededOut(t, "h2")
+	delete(e.t.torrents, "h2") // Transmission lost it
+	assert.ErrorIs(t, e.s.Seed(ctx, "h2", 24*time.Hour), ErrInvalid)
+	assert.Empty(t, e.t.started)
+}

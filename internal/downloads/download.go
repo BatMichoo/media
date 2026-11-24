@@ -45,6 +45,7 @@ type Download struct {
 	Size, Done        int64         // bytes in all and so far (Size 0 = not known yet)
 	ETA               time.Duration // time left; 0 = not known
 	SeedingUntil      time.Time
+	SeedingNoLimit    bool // seeding started by hand with no end (SeedingUntil zero)
 	SeedingDone       bool
 	Paused            bool // paused in the app, downloading or seeding
 	InOrder           bool // downloads its pieces in order
@@ -68,11 +69,15 @@ func (d Download) Active() bool {
 		return false
 	}
 	return d.State == model.StateDownloading ||
-		(d.State == model.StateFiled && !d.SeedingUntil.IsZero() && !d.SeedingDone)
+		(d.State == model.StateFiled && (!d.SeedingUntil.IsZero() || d.SeedingNoLimit) && !d.SeedingDone)
 }
 
 // CanPause is true while it downloads or seeds.
 func (d Download) CanPause() bool { return d.Active() }
+
+// CanSeed is true when it finished and its seeding is over, so seeding
+// can be started again by hand.
+func (d Download) CanSeed() bool { return d.Live && d.SeedingDone && !d.Paused }
 
 // AddInput is what the Add page sends: a magnet link or a torrent file.
 type AddInput struct {

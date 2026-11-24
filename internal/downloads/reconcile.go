@@ -77,9 +77,26 @@ func (s *Service) CheckPending(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// seedEnd is when a finished torrent stops seeding: the end chosen when
+// seeding was started by hand, else SeedFor after it finished. noLimit is
+// true when it was started by hand with no end.
+func (s *Service) seedEnd(r db.Download, t transmission.Torrent) (end time.Time, noLimit bool) {
+	switch {
+	case r.SeedNoLimit:
+		return time.Time{}, true
+	case !r.SeedUntil.IsZero():
+		return r.SeedUntil, false
+	}
+	return t.DoneDate.Add(s.SeedFor), false
+}
+
 // seedingOver is true once a finished torrent has seeded long enough.
-func (s *Service) seedingOver(t transmission.Torrent) bool {
-	return !t.DoneDate.IsZero() && s.Now().Sub(t.DoneDate) > s.SeedFor
+func (s *Service) seedingOver(r db.Download, t transmission.Torrent) bool {
+	if t.DoneDate.IsZero() {
+		return false
+	}
+	end, noLimit := s.seedEnd(r, t)
+	return !noLimit && s.Now().After(end)
 }
 
 // roundTimeout bounds one background round. A round isn't cut short
@@ -172,7 +189,7 @@ func (s *Service) poll(ctx context.Context) (noPeers bool, err error) {
 				errs = append(errs, fmt.Errorf("sequential %s: %w", r.Title, err))
 			}
 		}
-		if ok && !t.Stopped && s.seedingOver(t) {
+		if ok && !t.Stopped && s.seedingOver(r, t) {
 			if err := s.t.Stop(ctx, r.Hash); err != nil {
 				errs = append(errs, fmt.Errorf("stop seeding %s: %w", r.Title, err))
 			}

@@ -251,9 +251,9 @@ func (s *Service) List(ctx context.Context) ([]Download, error) {
 			out[i].PortClosed, out[i].Port = s.portClosed()
 		}
 		if !t.DoneDate.IsZero() {
-			out[i].SeedingUntil = t.DoneDate.Add(s.SeedFor)
+			out[i].SeedingUntil, out[i].SeedingNoLimit = s.seedEnd(rows[i], t)
 			// Paused past its seeding time is simply done.
-			if s.seedingOver(t) {
+			if s.seedingOver(rows[i], t) {
 				out[i].Paused = false
 			}
 			out[i].SeedingDone = t.Stopped && !out[i].Paused
@@ -290,10 +290,40 @@ func (s *Service) Resume(ctx context.Context, hash string) error {
 	if err != nil {
 		return fmt.Errorf("transmission: %w", err)
 	}
-	if t, ok := live[hash]; ok && !s.seedingOver(t) {
+	if t, ok := live[hash]; ok && !s.seedingOver(r, t) {
 		if err := s.t.Start(ctx, hash); err != nil {
 			return err
 		}
+	}
+	r.Paused = false
+	return s.store.UpdateDownload(ctx, r)
+}
+
+// Seed starts seeding a finished torrent again, for limit from now, or
+// with no end when limit is 0. It replaces the seeding time it had.
+func (s *Service) Seed(ctx context.Context, hash string, limit time.Duration) error {
+	if limit < 0 {
+		return ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.row(ctx, hash)
+	if err != nil {
+		return err
+	}
+	live, err := s.t.Get(ctx, []string{hash})
+	if err != nil {
+		return fmt.Errorf("transmission: %w", err)
+	}
+	if t, ok := live[hash]; !ok || t.DoneDate.IsZero() || t.PercentDone < 1 {
+		return ErrInvalid
+	}
+	if err := s.t.Start(ctx, hash); err != nil {
+		return err
+	}
+	r.SeedUntil, r.SeedNoLimit = time.Time{}, limit == 0
+	if limit > 0 {
+		r.SeedUntil = s.Now().Add(limit)
 	}
 	r.Paused = false
 	return s.store.UpdateDownload(ctx, r)
