@@ -23,19 +23,31 @@ type Download struct {
 	AddedBy, AddedByName string
 	AddedAt              time.Time
 	State                model.State
-	Reason               string // text from elsewhere (Transmission, the file system), or ""
-	ReasonKey            string // or a message key the app wrote, translated when shown
-	ReasonN              int    // the count filled into ReasonKey's message, 0 = none
-	Paused               bool   // paused in the app
-	InOrder              bool   // downloads its pieces in order (new rows: true)
+	Reason               string    // text from elsewhere (Transmission, the file system), or ""
+	ReasonKey            string    // or a message key the app wrote, translated when shown
+	ReasonN              int       // the count filled into ReasonKey's message, 0 = none
+	Paused               bool      // paused in the app
+	InOrder              bool      // downloads its pieces in order (new rows: true)
+	SeedUntil            time.Time // seeding started by hand ends then; zero = not chosen
+	SeedNoLimit          bool      // seeding started by hand with no end
 }
 
-const downloadCols = `hash, kind, title, COALESCE(year, 0), name, added_by, added_by_name, added_at, state, reason, reason_key, reason_n, paused, in_order`
+const downloadCols = `hash, kind, title, COALESCE(year, 0), name, added_by, added_by_name, added_at, state, reason, reason_key, reason_n, paused, in_order, seed_until, seed_no_limit`
 
 func scanDownload(row interface{ Scan(...any) error }) (Download, error) {
 	var d Download
-	err := row.Scan(&d.Hash, &d.Kind, &d.Title, &d.Year, &d.Name, &d.AddedBy, &d.AddedByName, &d.AddedAt, &d.State, &d.Reason, &d.ReasonKey, &d.ReasonN, &d.Paused, &d.InOrder)
+	var until sql.NullTime
+	err := row.Scan(&d.Hash, &d.Kind, &d.Title, &d.Year, &d.Name, &d.AddedBy, &d.AddedByName, &d.AddedAt, &d.State, &d.Reason, &d.ReasonKey, &d.ReasonN, &d.Paused, &d.InOrder,
+		&until, &d.SeedNoLimit)
+	d.SeedUntil = until.Time
 	return d, err
+}
+
+func nullTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
 }
 
 func nullYear(y int) any {
@@ -84,12 +96,13 @@ func (d *DB) ListDownloads(ctx context.Context) ([]Download, error) {
 	return d.listDownloads(ctx, "")
 }
 
-// UpdateDownload saves kind, title, year, name, state, the reason, paused
-// and in_order.
+// UpdateDownload saves kind, title, year, name, state, the reason, paused,
+// in_order and the chosen seeding end.
 func (d *DB) UpdateDownload(ctx context.Context, dl Download) error {
 	res, err := d.q(ctx).ExecContext(ctx, `UPDATE downloads SET kind = $2, title = $3, year = $4, name = $5, state = $6, reason = $7,
-		reason_key = $8, reason_n = $9, paused = $10, in_order = $11 WHERE hash = $1`,
-		dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.State, dl.Reason, dl.ReasonKey, dl.ReasonN, dl.Paused, dl.InOrder)
+		reason_key = $8, reason_n = $9, paused = $10, in_order = $11, seed_until = $12, seed_no_limit = $13 WHERE hash = $1`,
+		dl.Hash, dl.Kind, dl.Title, nullYear(dl.Year), dl.Name, dl.State, dl.Reason, dl.ReasonKey, dl.ReasonN, dl.Paused, dl.InOrder,
+		nullTime(dl.SeedUntil), dl.SeedNoLimit)
 	if err != nil {
 		return err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/BatMichoo/media/internal/db"
 	"github.com/BatMichoo/media/internal/db/dbtest"
@@ -105,4 +106,32 @@ func TestSubtitleLabelRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, subs, 1)
 	assert.Equal(t, "WEB", subs[0].Label)
+}
+
+func TestDownloadSeedUntil(t *testing.T) {
+	d := dbtest.New(t)
+	ctx := context.Background()
+	row := db.Download{Hash: "a", Kind: model.KindMovie, Title: "X", Year: 2000,
+		AddedBy: "6f1c2a3b-0000-4000-8000-000000000001", AddedByName: "x", State: model.StateFiled}
+	require.NoError(t, d.InsertDownload(ctx, row))
+	got, err := d.GetDownload(ctx, "a")
+	require.NoError(t, err)
+	assert.True(t, got.SeedUntil.IsZero(), "a new row has no chosen end")
+	assert.False(t, got.SeedNoLimit)
+
+	until := time.Date(2026, 11, 25, 9, 30, 0, 0, time.UTC)
+	got.SeedUntil, got.SeedNoLimit = until, true
+	require.NoError(t, d.UpdateDownload(ctx, got))
+	list, err := d.ListDownloads(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.True(t, list[0].SeedUntil.Equal(until))
+	assert.True(t, list[0].SeedNoLimit)
+
+	list[0].SeedUntil, list[0].SeedNoLimit = time.Time{}, false
+	require.NoError(t, d.UpdateDownload(ctx, list[0]))
+	got, err = d.GetDownload(ctx, "a")
+	require.NoError(t, err)
+	assert.True(t, got.SeedUntil.IsZero())
+	assert.False(t, got.SeedNoLimit)
 }
