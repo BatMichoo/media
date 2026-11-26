@@ -76,8 +76,10 @@ func TestWatchPageData(t *testing.T) {
 		by, _ := s.Attr("aria-labelledby")
 		require.NotEmpty(t, by)
 		assert.Equal(t, 1, p.Find("h3#"+by).Length(), by)
-		r, _ := s.Find("ul").Attr("role")
-		assert.Equal(t, "none", r)
+		if ul := s.Find("ul"); ul.Length() > 0 {
+			r, _ := ul.Attr("role")
+			assert.Equal(t, "none", r)
+		}
 	})
 
 	// The seek bar's name follows the page's language.
@@ -237,6 +239,25 @@ func TestPrefsSubtitleSize(t *testing.T) {
 		assert.Equal(t, 400, w.Code, bad)
 		assert.Nil(t, a.w.setSize, bad)
 	}
+}
+
+func TestWatchSizeControl(t *testing.T) {
+	a := newApp(t)
+	m := movie("Dune", "Dune (2021)", 2021)
+	a.cat.items[m.ID] = m
+	a.w.prefs = watching.Prefs{SubtitleSize: 120}
+	_, doc := a.get(t, "/watch/"+m.ID)
+	g := doc.Find(`#player .player-menu [data-group="size"]`)
+	require.Equal(t, 1, g.Length())
+	assert.Equal(t, "120%", strings.TrimSpace(g.Find("output").Text()))
+	for _, c := range []struct{ step, key string }{{"-10", "player.smaller"}, {"10", "player.larger"}} {
+		b := g.Find(`button[data-size="` + c.step + `"]`)
+		require.Equal(t, 1, b.Length(), c.step)
+		l, _ := b.Attr("aria-label")
+		assert.NotEmpty(t, l, c.step)
+		assert.NotEqual(t, c.key, l, c.step)
+	}
+	assert.NotEqual(t, "player.subSize", strings.TrimSpace(g.Find("h3").Text()))
 }
 
 func TestWatchSubSize(t *testing.T) {

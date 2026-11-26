@@ -82,6 +82,8 @@
     var subList = menu.querySelector('[data-group="subtitles"] ul');
     var audioGroup = menu.querySelector('[data-group="audio"]');
     var audioList = audioGroup.querySelector("ul");
+    var sizeGroup = menu.querySelector('[data-group="size"]');
+    var sizeOut = sizeGroup.querySelector("output");
     var errorBox = root.querySelector(".player-error");
 
     var item = root.dataset.item;
@@ -93,6 +95,12 @@
     var L = JSON.parse(root.dataset.labels);
 
     var session = null; // the /play answer for the current part
+    // Subtitle size in percent of the default 1.4em, set with − and +.
+    var subSize = Number(root.dataset.subSize) || 100;
+    var SIZE_MIN = 50, SIZE_MAX = 250;
+    var sizeSave = 0;
+    var cueStyle = document.createElement("style");
+    document.head.appendChild(cueStyle);
     var hls = null;
     var lastSave = 0;
     var leaving = false;
@@ -242,6 +250,29 @@
         audioList.appendChild(menuItem(String(t.index), t.label || t.lang, chosen));
       });
       audioGroup.hidden = s.audioTracks.length < 2;
+      // Picture subtitles are part of the picture: no size to change.
+      var shown = s.sub === null ? null : track(s.subtitles, s.sub);
+      sizeGroup.hidden = !shown || shown.image;
+    }
+
+    // applySize shows subtitles at n percent; ::cue gets a rule of its own
+    // since it doesn't read custom properties in every browser.
+    function applySize(n) {
+      subSize = Math.min(SIZE_MAX, Math.max(SIZE_MIN, n));
+      cueStyle.textContent = "#player video::cue { font-size: " + (1.4 * subSize / 100).toFixed(2) + "em; }";
+      sizeOut.textContent = subSize + "%";
+      sizeGroup.querySelectorAll("button[data-size]").forEach(function (b) {
+        var end = Number(b.dataset.size) < 0 ? subSize <= SIZE_MIN : subSize >= SIZE_MAX;
+        b.setAttribute("aria-disabled", end ? "true" : "false");
+      });
+    }
+    applySize(subSize);
+    // saveSize sends a size still waiting to be saved.
+    function saveSize() {
+      if (!sizeSave) return;
+      clearTimeout(sizeSave);
+      sizeSave = 0;
+      savePrefs("subtitle_size", String(subSize));
     }
 
     function track(list, index) {
@@ -252,7 +283,7 @@
     function savePrefs(field, value) {
       var f = new FormData();
       f.append(field, value);
-      fetch("/prefs", { method: "POST", body: f, credentials: "same-origin" }).catch(function () {});
+      fetch("/prefs", { method: "POST", body: f, credentials: "same-origin", keepalive: true }).catch(function () {});
     }
 
     function chooseSubtitle(index) {
@@ -303,6 +334,17 @@
     }
 
     menu.addEventListener("click", function (e) {
+      var sb = e.target.closest("button[data-size]");
+      if (sb) {
+        // The menu stays open so the person can press again while watching.
+        if (sb.getAttribute("aria-disabled") === "true") return;
+        applySize(subSize + Number(sb.dataset.size));
+        // One save after a run of presses: saves sent per press could
+        // arrive out of order and keep an earlier size.
+        clearTimeout(sizeSave);
+        sizeSave = setTimeout(saveSize, 600);
+        return;
+      }
       var b = e.target.closest("button[data-track]");
       if (!b || !session) return;
       if (b.getAttribute("aria-checked") === "true") { closeMenu(); settingsBtn.focus(); return; } // already playing
@@ -664,6 +706,10 @@
         else if (e.key === "ArrowUp") next = (i - 1 + bs.length) % bs.length;
         else if (e.key === "Home") next = 0;
         else if (e.key === "End") next = bs.length - 1;
+        else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && document.activeElement.dataset.size) {
+          // Between − and +, as they sit side by side.
+          next = bs.indexOf(sizeGroup.querySelector('button[data-size="' + (e.key === "ArrowLeft" ? "-10" : "10") + '"]'));
+        }
         else if (e.key === "Tab") { closeMenu(); settingsBtn.focus(); e.preventDefault(); return; }
         if (next >= 0 && bs[next]) { e.preventDefault(); bs[next].focus(); }
         return;
@@ -774,7 +820,7 @@
       }, TAP_MS);
     });
 
-    on(window, "pagehide", function () { if (!leaving) { leaving = true; save("stop"); } });
+    on(window, "pagehide", function () { saveSize(); if (!leaving) { leaving = true; save("stop"); } });
 
     root.focus({ preventScroll: true });
     wake();
@@ -782,6 +828,8 @@
 
     return function teardown() {
       dead = true;
+      saveSize();
+      cueStyle.remove();
       if (!leaving) {
         leaving = true;
         save("stop");

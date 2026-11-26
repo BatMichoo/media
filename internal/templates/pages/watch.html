@@ -27,6 +27,8 @@
   <div class="player-menu" role="menu" hidden>
     <section data-group="subtitles" role="group" aria-labelledby="player-menu-subtitles"><h3 id="player-menu-subtitles" aria-hidden="true">{{ t .Lang "player.subtitles" }}</h3><ul role="none"></ul></section>
     <section data-group="audio" role="group" aria-labelledby="player-menu-audio" hidden><h3 id="player-menu-audio" aria-hidden="true">{{ t .Lang "player.audio" }}</h3><ul role="none"></ul></section>
+    <section data-group="size" role="group" aria-labelledby="player-menu-size" hidden><h3 id="player-menu-size" aria-hidden="true">{{ t .Lang "player.subSize" }}</h3>
+      <div class="player-size"><button type="button" data-size="-10" aria-label='{{ t .Lang "player.smaller" }}'>−</button><output aria-live="polite">{{ .SubSize }}%</output><button type="button" data-size="10" aria-label='{{ t .Lang "player.larger" }}'>+</button></div></section>
   </div>
   <div class="player-controls">
     <div class="player-timeline">
