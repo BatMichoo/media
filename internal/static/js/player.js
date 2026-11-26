@@ -264,6 +264,8 @@
       sizeGroup.querySelectorAll("button[data-size]").forEach(function (b) {
         var end = Number(b.dataset.size) < 0 ? subSize <= SIZE_MIN : subSize >= SIZE_MAX;
         b.setAttribute("aria-disabled", end ? "true" : "false");
+        // The value is in the name, so a screen reader says it on each press.
+        b.setAttribute("aria-label", b.dataset.label + ", " + subSize + "%");
       });
     }
     applySize(subSize);
@@ -820,6 +822,9 @@
       }, TAP_MS);
     });
 
+    // Leaving through an htmx link: save before the next page is asked
+    // for, so it shows the new size.
+    on(document, "htmx:beforeRequest", saveSize);
     on(window, "pagehide", function () { saveSize(); if (!leaving) { leaving = true; save("stop"); } });
 
     root.focus({ preventScroll: true });

@@ -76,10 +76,11 @@ func TestWatchPageData(t *testing.T) {
 		by, _ := s.Attr("aria-labelledby")
 		require.NotEmpty(t, by)
 		assert.Equal(t, 1, p.Find("h3#"+by).Length(), by)
-		if ul := s.Find("ul"); ul.Length() > 0 {
-			r, _ := ul.Attr("role")
-			assert.Equal(t, "none", r)
+		if g, _ := s.Attr("data-group"); g == "size" {
+			return // − and + buttons, no list
 		}
+		r, _ := s.Find("ul").Attr("role")
+		assert.Equal(t, "none", r)
 	})
 
 	// The seek bar's name follows the page's language.
@@ -253,9 +254,13 @@ func TestWatchSizeControl(t *testing.T) {
 	for _, c := range []struct{ step, key string }{{"-10", "player.smaller"}, {"10", "player.larger"}} {
 		b := g.Find(`button[data-size="` + c.step + `"]`)
 		require.Equal(t, 1, b.Length(), c.step)
+		role, _ := b.Attr("role")
+		assert.Equal(t, "menuitem", role, c.step)
+		base, _ := b.Attr("data-label")
+		assert.NotEmpty(t, base, c.step)
+		assert.NotEqual(t, c.key, base, c.step)
 		l, _ := b.Attr("aria-label")
-		assert.NotEmpty(t, l, c.step)
-		assert.NotEqual(t, c.key, l, c.step)
+		assert.Equal(t, base+", 120%", l, c.step)
 	}
 	assert.NotEqual(t, "player.subSize", strings.TrimSpace(g.Find("h3").Text()))
 }
