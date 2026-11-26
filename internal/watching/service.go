@@ -26,7 +26,10 @@ type Progress struct {
 
 // Prefs is a person's subtitle and audio language ("" none yet; for
 // subtitles "off" means off).
-type Prefs struct{ SubtitleLang, AudioLang string }
+type Prefs struct {
+	SubtitleLang, AudioLang string
+	SubtitleSize            int // percent; 0 when nothing is saved
+}
 
 // FinishedAt is the share of an item after which it counts as watched.
 const FinishedAt = 0.9
@@ -44,7 +47,7 @@ type Store interface {
 	RecentProgress(ctx context.Context, userID string, limit int) ([]db.Progress, error)
 	ProgressFor(ctx context.Context, userID string, itemIDs []string) ([]db.Progress, error)
 	GetPrefs(ctx context.Context, userID string) (db.Prefs, error)
-	SetPrefs(ctx context.Context, userID string, subtitleLang, audioLang *string) error
+	SetPrefs(ctx context.Context, userID string, subtitleLang, audioLang *string, subtitleSize *int) error
 }
 
 // Service is the watching logic.
@@ -204,15 +207,29 @@ func (s *Service) next(ctx context.Context, userID string, r Progress) (*Entry, 
 // chosen one (Jellyfin's code for Bulgarian).
 const DefaultSubtitleLang = "bul"
 
-// Prefs is a person's languages.
+// Subtitle sizes, in percent of the player's own: from MinSubtitleSize to
+// MaxSubtitleSize in steps of SubtitleSizeStep.
+const (
+	DefaultSubtitleSize = 100
+	MinSubtitleSize     = 50
+	MaxSubtitleSize     = 250
+	SubtitleSizeStep    = 10
+)
+
+// ValidSubtitleSize is whether n is one of the sizes the player offers.
+func ValidSubtitleSize(n int) bool {
+	return n >= MinSubtitleSize && n <= MaxSubtitleSize && n%SubtitleSizeStep == 0
+}
+
+// Prefs is a person's languages and subtitle size.
 func (s *Service) Prefs(ctx context.Context, userID string) (Prefs, error) {
 	p, err := s.store.GetPrefs(ctx, userID)
 	return Prefs(p), err
 }
 
-// SetPrefs saves the languages that aren't nil.
-func (s *Service) SetPrefs(ctx context.Context, userID string, subtitleLang, audioLang *string) error {
-	return s.store.SetPrefs(ctx, userID, subtitleLang, audioLang)
+// SetPrefs saves the preferences that aren't nil.
+func (s *Service) SetPrefs(ctx context.Context, userID string, subtitleLang, audioLang *string, subtitleSize *int) error {
+	return s.store.SetPrefs(ctx, userID, subtitleLang, audioLang, subtitleSize)
 }
 
 // PickTracks chooses tracks by a person's languages: a subtitle track in

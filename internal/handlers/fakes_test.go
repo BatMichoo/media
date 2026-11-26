@@ -164,12 +164,13 @@ func (f *fakeDownloads) Edit(_ context.Context, hash string, kind model.Kind, ti
 }
 
 type fakeWatching struct {
-	cont   []watching.Entry
-	prog   map[string]watching.Progress
-	saved  []watching.SaveInput
-	prefs  watching.Prefs
-	setSub *string
-	setAud *string
+	cont    []watching.Entry
+	prog    map[string]watching.Progress
+	saved   []watching.SaveInput
+	prefs   watching.Prefs
+	setSub  *string
+	setAud  *string
+	setSize *int
 }
 
 func (f *fakeWatching) Continue(context.Context, string, int) ([]watching.Entry, error) {
@@ -193,8 +194,8 @@ func (f *fakeWatching) Save(_ context.Context, _ string, in watching.SaveInput) 
 	return watching.Progress{}, nil
 }
 func (f *fakeWatching) Prefs(context.Context, string) (watching.Prefs, error) { return f.prefs, nil }
-func (f *fakeWatching) SetPrefs(_ context.Context, _ string, sub, aud *string) error {
-	f.setSub, f.setAud = sub, aud
+func (f *fakeWatching) SetPrefs(_ context.Context, _ string, sub, aud *string, size *int) error {
+	f.setSub, f.setAud, f.setSize = sub, aud, size
 	return nil
 }
 

@@ -238,12 +238,27 @@ func TestSetPrefsPartial(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, Prefs{}, p)
 	eng, bul := "eng", "bul"
-	require.NoError(t, e.s.SetPrefs(ctx, user, &eng, &bul))
+	require.NoError(t, e.s.SetPrefs(ctx, user, &eng, &bul, nil))
 	off := "off"
-	require.NoError(t, e.s.SetPrefs(ctx, user, &off, nil))
+	require.NoError(t, e.s.SetPrefs(ctx, user, &off, nil, nil))
 	p, err = e.s.Prefs(ctx, user)
 	require.NoError(t, err)
-	assert.Equal(t, Prefs{SubtitleLang: "off", AudioLang: "bul"}, p)
+	assert.Equal(t, Prefs{SubtitleLang: "off", AudioLang: "bul", SubtitleSize: 100}, p)
+	size := 130
+	require.NoError(t, e.s.SetPrefs(ctx, user, nil, nil, &size))
+	p, err = e.s.Prefs(ctx, user)
+	require.NoError(t, err)
+	assert.Equal(t, Prefs{SubtitleLang: "off", AudioLang: "bul", SubtitleSize: 130}, p)
+}
+
+func TestSetPrefsSizeOnly(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	size := 80
+	require.NoError(t, e.s.SetPrefs(ctx, user, nil, nil, &size))
+	p, err := e.s.Prefs(ctx, user)
+	require.NoError(t, err)
+	assert.Equal(t, Prefs{SubtitleSize: 80}, p)
 }
 
 func TestPickTracksDefaultBulgarianText(t *testing.T) {

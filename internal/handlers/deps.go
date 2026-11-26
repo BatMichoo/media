@@ -55,5 +55,5 @@ type Watching interface {
 	Many(ctx context.Context, userID string, itemIDs []string) (map[string]watching.Progress, error)
 	Save(ctx context.Context, userID string, in watching.SaveInput) (watching.Progress, error)
 	Prefs(ctx context.Context, userID string) (watching.Prefs, error)
-	SetPrefs(ctx context.Context, userID string, subtitleLang, audioLang *string) error
+	SetPrefs(ctx context.Context, userID string, subtitleLang, audioLang *string, subtitleSize *int) error
 }

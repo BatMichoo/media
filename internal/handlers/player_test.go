@@ -221,6 +221,35 @@ func TestPrefsPartial(t *testing.T) {
 	require.NotNil(t, a.w.setSub)
 	assert.Equal(t, "off", *a.w.setSub)
 	assert.Nil(t, a.w.setAud, "audio kept")
+	assert.Nil(t, a.w.setSize, "size kept")
+}
+
+func TestPrefsSubtitleSize(t *testing.T) {
+	a := newApp(t)
+	w, _ := a.post(t, "/prefs", url.Values{"subtitle_size": {"120"}})
+	assert.Equal(t, 204, w.Code)
+	require.NotNil(t, a.w.setSize)
+	assert.Equal(t, 120, *a.w.setSize)
+	assert.Nil(t, a.w.setSub, "languages kept")
+	for _, bad := range []string{"55", "40", "260", "abc", ""} {
+		a.w.setSize = nil
+		w, _ := a.post(t, "/prefs", url.Values{"subtitle_size": {bad}})
+		assert.Equal(t, 400, w.Code, bad)
+		assert.Nil(t, a.w.setSize, bad)
+	}
+}
+
+func TestWatchSubSize(t *testing.T) {
+	a := newApp(t)
+	m := movie("Dune", "Dune (2021)", 2021)
+	a.cat.items[m.ID] = m
+	_, doc := a.get(t, "/watch/"+m.ID)
+	v, _ := doc.Find("#player").Attr("data-sub-size")
+	assert.Equal(t, "100", v, "nothing saved: 100%")
+	a.w.prefs = watching.Prefs{SubtitleSize: 150}
+	_, doc = a.get(t, "/watch/"+m.ID)
+	v, _ = doc.Find("#player").Attr("data-sub-size")
+	assert.Equal(t, "150", v)
 }
 
 func TestWatchPageInline(t *testing.T) {

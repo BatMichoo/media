@@ -34,6 +34,7 @@ type watchView struct {
 	Part                            int
 	Start                           float64
 	Labels                          string // JSON of the player's texts
+	SubSize                         int    // subtitle size, percent
 
 	// What's playing, shown under the player.
 	Episode     bool          // an episode (else a movie)
@@ -95,6 +96,12 @@ func (h *web) watch(c *gin.Context) {
 		if n, err := strconv.Atoi(s); err == nil && n >= 0 && n < len(parts) {
 			v.Part, v.Start = n, 0
 		}
+	}
+	v.SubSize = watching.DefaultSubtitleSize
+	if p, err := h.d.Watching.Prefs(ctx, CurrentUser(c).ID); err != nil {
+		log.Printf("prefs: %v", err)
+	} else if p.SubtitleSize != 0 {
+		v.SubSize = p.SubtitleSize
 	}
 	b, _ := json.Marshal(parts)
 	v.Parts = string(b)
@@ -312,17 +319,26 @@ func (h *web) progress(c *gin.Context) {
 
 func (h *web) prefs(c *gin.Context) {
 	var sub, aud *string
+	var size *int
 	if v, ok := c.GetPostForm("subtitle_lang"); ok {
 		sub = &v
 	}
 	if v, ok := c.GetPostForm("audio_lang"); ok {
 		aud = &v
 	}
-	if sub == nil && aud == nil {
+	if v, ok := c.GetPostForm("subtitle_size"); ok {
+		n, err := strconv.Atoi(v)
+		if err != nil || !watching.ValidSubtitleSize(n) {
+			c.Status(http.StatusBadRequest)
+			return
+		}
+		size = &n
+	}
+	if sub == nil && aud == nil && size == nil {
 		c.Status(http.StatusBadRequest)
 		return
 	}
-	if err := h.d.Watching.SetPrefs(c.Request.Context(), CurrentUser(c).ID, sub, aud); err != nil {
+	if err := h.d.Watching.SetPrefs(c.Request.Context(), CurrentUser(c).ID, sub, aud, size); err != nil {
 		log.Printf("prefs: %v", err)
 		c.Status(http.StatusInternalServerError)
 		return

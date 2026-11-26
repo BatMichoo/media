@@ -84,14 +84,18 @@ func (d *DB) ProgressFor(ctx context.Context, userID string, itemIDs []string) (
 		userID, pq.Array(itemIDs))
 }
 
-// Prefs is a person's chosen subtitle and audio languages.
-type Prefs struct{ SubtitleLang, AudioLang string }
+// Prefs is a person's chosen subtitle and audio languages, and subtitle
+// size in percent (0 when nothing is saved).
+type Prefs struct {
+	SubtitleLang, AudioLang string
+	SubtitleSize            int
+}
 
 // GetPrefs is a person's preferences (empty if none saved).
 func (d *DB) GetPrefs(ctx context.Context, userID string) (Prefs, error) {
 	var p Prefs
-	err := d.q(ctx).QueryRowContext(ctx, `SELECT subtitle_lang, audio_lang FROM preferences WHERE user_id = $1`, userID).
-		Scan(&p.SubtitleLang, &p.AudioLang)
+	err := d.q(ctx).QueryRowContext(ctx, `SELECT subtitle_lang, audio_lang, subtitle_size FROM preferences WHERE user_id = $1`, userID).
+		Scan(&p.SubtitleLang, &p.AudioLang, &p.SubtitleSize)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Prefs{}, nil
 	}
@@ -99,11 +103,12 @@ func (d *DB) GetPrefs(ctx context.Context, userID string) (Prefs, error) {
 }
 
 // SetPrefs saves the preferences that aren't nil, keeping the others.
-func (d *DB) SetPrefs(ctx context.Context, userID string, subtitleLang, audioLang *string) error {
-	_, err := d.q(ctx).ExecContext(ctx, `INSERT INTO preferences (user_id, subtitle_lang, audio_lang)
-		VALUES ($1, COALESCE($2, ''), COALESCE($3, ''))
+func (d *DB) SetPrefs(ctx context.Context, userID string, subtitleLang, audioLang *string, subtitleSize *int) error {
+	_, err := d.q(ctx).ExecContext(ctx, `INSERT INTO preferences (user_id, subtitle_lang, audio_lang, subtitle_size)
+		VALUES ($1, COALESCE($2, ''), COALESCE($3, ''), COALESCE($4, 100))
 		ON CONFLICT (user_id) DO UPDATE SET
 			subtitle_lang = COALESCE($2, preferences.subtitle_lang),
-			audio_lang = COALESCE($3, preferences.audio_lang)`, userID, subtitleLang, audioLang)
+			audio_lang = COALESCE($3, preferences.audio_lang),
+			subtitle_size = COALESCE($4, preferences.subtitle_size)`, userID, subtitleLang, audioLang, subtitleSize)
 	return err
 }
