@@ -72,8 +72,11 @@
       var along, across;
       if (dir === "right") { if (bx <= ax) return; along = Math.max(0, b.left - a.right); across = Math.abs(by - ay); }
       else if (dir === "left") { if (bx >= ax) return; along = Math.max(0, a.left - b.right); across = Math.abs(by - ay); }
-      else if (dir === "down") { if (by <= ay) return; along = Math.max(0, b.top - a.bottom); across = Math.abs(bx - ax); }
-      else { if (by >= ay) return; along = Math.max(0, a.top - b.bottom); across = Math.abs(bx - ax); }
+      // Up and Down need the other element's middle beyond this one's edge:
+      // a card in the same row sits a fraction of a pixel higher or lower
+      // while the focused card is scaled up, and must not count.
+      else if (dir === "down") { if (by <= a.bottom) return; along = Math.max(0, b.top - a.bottom); across = Math.abs(bx - ax); }
+      else { if (by >= a.top) return; along = Math.max(0, a.top - b.bottom); across = Math.abs(bx - ax); }
       var score;
       if (dir === "left" || dir === "right") {
         var sameRow = b.top < a.bottom && b.bottom > a.top;
@@ -102,11 +105,56 @@
     return pool[0] || null;
   }
 
+  // entry is where Up or Down lands in a row of cards: its leftmost card
+  // that is wholly in view (where the row was left), not whichever card
+  // happens to sit under the one focus came from.
+  function entry(next, from, list) {
+    var row = next.closest(".row-cards");
+    if (!row || row.contains(from)) return next;
+    var edge = row.getBoundingClientRect().left;
+    var inRow = list.filter(function (el) { return row.contains(el) && el.closest(".media-card"); });
+    var left = function (el) { return el.closest(".media-card").getBoundingClientRect().left; };
+    inRow.sort(function (x, y) { return left(x) - left(y); });
+    for (var i = 0; i < inRow.length; i++) if (left(inRow[i]) >= edge - 1) return inRow[i];
+    return inRow[0] || next;
+  }
+
+  var smooth = !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+  // focus moves focus and scrolls it into view in one smooth motion. A card
+  // in a row lines its row up to a card's start, where the row's scroll
+  // snapping would end anyway, so the snap doesn't move it a second time;
+  // the page then shows the whole row with its heading.
   function focus(el) {
     el.focus({ preventScroll: true });
-    // "nearest" scrolls only as far as needed, in both axes (a row of cards
-    // scrolls sideways, the page up or down).
-    el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    var behavior = smooth ? "smooth" : "auto";
+    var card = el.closest(".row-cards > .media-card");
+    if (!card) {
+      el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: behavior });
+      return;
+    }
+    var row = card.parentElement;
+    var pad = parseFloat(getComputedStyle(row).scrollPaddingInlineStart) || 0;
+    var r = row.getBoundingClientRect();
+    // Where each card starts in the row's content: the row's snap points.
+    var starts = Array.prototype.map.call(row.children, function (k) {
+      return k.getBoundingClientRect().left - r.left + row.scrollLeft - pad;
+    });
+    var c = card.getBoundingClientRect();
+    var mine = c.left - r.left + row.scrollLeft - pad;
+    var target = null;
+    if (c.left < r.left + pad) {
+      target = mine;
+    } else if (c.right > r.right - pad) {
+      // The first snap point that shows the whole card.
+      var need = mine + c.width + 2 * pad - row.clientWidth;
+      for (var i = 0; i < starts.length; i++) {
+        if (starts[i] >= need - 1) { target = starts[i]; break; }
+      }
+      if (target === null) target = need;
+    }
+    if (target !== null) row.scrollTo({ left: Math.max(0, target), behavior: behavior });
+    (row.closest(".row") || row).scrollIntoView({ block: "nearest", behavior: behavior });
   }
 
   document.addEventListener("keydown", function (e) {
@@ -121,6 +169,7 @@
     var list = candidates();
     var onPage = !f || f === document.body || f === document.documentElement;
     var next = onPage ? first(list) : best(f, list, dir);
+    if (next && !onPage && (dir === "up" || dir === "down")) next = entry(next, f, list);
     // Nothing further that way: leave the key alone so the page can scroll.
     if (!next) return;
     e.preventDefault();
