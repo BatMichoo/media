@@ -121,6 +121,9 @@ func (f *fakeDownloads) StartNow(_ context.Context, hash string) error {
 func (f *fakeDownloads) AnyOrder(_ context.Context, hash string) error {
 	return f.pauseCall("any-order", hash)
 }
+func (f *fakeDownloads) InOrder(_ context.Context, hash string) error {
+	return f.pauseCall("in-order", hash)
+}
 func (f *fakeDownloads) Seed(_ context.Context, hash string, limit time.Duration) error {
 	return f.pauseCall("seed "+limit.String(), hash)
 }

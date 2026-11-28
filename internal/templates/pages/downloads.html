@@ -65,6 +65,10 @@
           {{ else if .CanPause }}
           <button type="button" class="btn-secondary pause" hx-post="/downloads/{{ .Hash }}/pause" hx-target="#downloads-list" hx-swap="outerHTML">❚❚ {{ t .Lang "pause" }}</button>
           {{ end }}
+          {{ if eq .State "downloading" }}
+          <button type="button" class="btn-secondary order" aria-pressed="{{ .InOrder }}" title='{{ t .Lang "in_order.note" }}'
+            hx-post="/downloads/{{ .Hash }}/{{ if .InOrder }}any-order{{ else }}in-order{{ end }}" hx-target="#downloads-list" hx-swap="outerHTML">{{ if .InOrder }}✓ {{ end }}{{ t .Lang "in_order" }}</button>
+          {{ end }}
           {{ if .CanSeed }}<button type="button" class="btn-secondary seed" hx-get="/downloads/{{ .Hash }}/seed" hx-target="#sheet" hx-swap="innerHTML">↑ {{ t .Lang "seed" }}</button>{{ end }}
           <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/edit" hx-target="#sheet" hx-swap="innerHTML">{{ t .Lang "edit" }}</button>
           <button type="button" class="btn-secondary" hx-get="/downloads/{{ .Hash }}/remove" hx-target="#sheet" hx-swap="innerHTML">{{ t .Lang "remove" }}</button>

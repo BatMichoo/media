@@ -341,7 +341,7 @@ func (h *web) postSeed(c *gin.Context) {
 	h.pauseOrResume(c, func(ctx context.Context, hash string) error { return h.d.Downloads.Seed(ctx, hash, limit) })
 }
 
-// pauseOrResume runs Pause, Resume, StartNow, AnyOrder or Seed and answers with
+// pauseOrResume runs Pause, Resume, StartNow, AnyOrder, InOrder or Seed and answers with
 // the refreshed list.
 func (h *web) pauseOrResume(c *gin.Context, do func(ctx context.Context, hash string) error) {
 	err := do(c.Request.Context(), c.Param("hash"))
@@ -361,6 +361,7 @@ func (h *web) postPause(c *gin.Context)    { h.pauseOrResume(c, h.d.Downloads.Pa
 func (h *web) postResume(c *gin.Context)   { h.pauseOrResume(c, h.d.Downloads.Resume) }
 func (h *web) postStartNow(c *gin.Context) { h.pauseOrResume(c, h.d.Downloads.StartNow) }
 func (h *web) postAnyOrder(c *gin.Context) { h.pauseOrResume(c, h.d.Downloads.AnyOrder) }
+func (h *web) postInOrder(c *gin.Context)  { h.pauseOrResume(c, h.d.Downloads.InOrder) }
 
 // uploads reads the subtitle files sent in a form field, all in one
 // language; the downloads service checks them. A .zip or .rar stands for

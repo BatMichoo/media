@@ -130,6 +130,8 @@
   "start_now": "Start now",
   "any_order": "Download in any order",
   "any_order.note": "It can't be watched until it finishes.",
+  "in_order": "In order",
+  "in_order.note": "Fetches the pieces in order so it can be watched while downloading. Off: often faster, but watchable only once finished.",
   "downloads.peers.one": "%d peer, %d sending",
   "downloads.peers_of.one": "%d of %d peer, %d sending",
   "stuck.no_peers_seeders.one": "No peers connected (the tracker sees %d seeder)",

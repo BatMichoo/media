@@ -184,8 +184,10 @@ func (s *Service) poll(ctx context.Context) (noPeers bool, err error) {
 		if ok && s.stuck(r.Hash, stuckReason(r.State, r.Paused, t)) == StuckNoPeers {
 			noPeers = true
 		}
-		if ok && t.PercentDone < 1 && !t.Sequential && r.InOrder {
-			if err := s.t.SetSequential(ctx, r.Hash, true); err != nil {
+		// Transmission follows the saved order, either way (a change it
+		// missed, or one it lost on restart, is put right here).
+		if ok && t.PercentDone < 1 && t.Sequential != r.InOrder {
+			if err := s.t.SetSequential(ctx, r.Hash, r.InOrder); err != nil {
 				errs = append(errs, fmt.Errorf("sequential %s: %w", r.Title, err))
 			}
 		}

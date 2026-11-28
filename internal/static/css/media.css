@@ -198,6 +198,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .download-meta { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; font-size: 0.85rem; color: var(--text-muted); }
 .download-actions { display: flex; gap: 0.5rem; margin-left: auto; }
 .download-actions .btn-secondary { margin: 0; padding: 0.35rem 1.1rem; border-radius: 999px; }
+.download-actions .order[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 
 @media (max-width: 640px) {
   .media-page { padding: 0 1rem; margin-top: 1rem; }

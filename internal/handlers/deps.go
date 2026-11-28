@@ -38,6 +38,7 @@ type Downloads interface {
 	Resume(ctx context.Context, hash string) error
 	StartNow(ctx context.Context, hash string) error
 	AnyOrder(ctx context.Context, hash string) error
+	InOrder(ctx context.Context, hash string) error
 	Seed(ctx context.Context, hash string, limit time.Duration) error
 	LibrarySubtitle(ctx context.Context, video string, kind model.Kind, ups []downloads.Upload) error
 }

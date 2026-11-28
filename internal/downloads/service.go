@@ -342,19 +342,29 @@ func (s *Service) StartNow(ctx context.Context, hash string) error {
 // AnyOrder lets a download fetch its pieces in any order, which helps when
 // in-order downloading stalls; it can't be watched until it's finished.
 func (s *Service) AnyOrder(ctx context.Context, hash string) error {
+	return s.setOrder(ctx, hash, false)
+}
+
+// InOrder makes a download fetch its pieces in order again, so it can be
+// watched while it downloads.
+func (s *Service) InOrder(ctx context.Context, hash string) error {
+	return s.setOrder(ctx, hash, true)
+}
+
+func (s *Service) setOrder(ctx context.Context, hash string, inOrder bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, err := s.row(ctx, hash)
 	if err != nil {
 		return err
 	}
-	// Saved first: if Transmission then fails, the poll still won't turn
-	// in-order back on, and the button shows again for another try.
-	r.InOrder = false
+	// Saved first: the poll makes Transmission follow the saved choice, so
+	// if Transmission fails now it is put right on the next round.
+	r.InOrder = inOrder
 	if err := s.store.UpdateDownload(ctx, r); err != nil {
 		return err
 	}
-	return s.t.SetSequential(ctx, hash, false)
+	return s.t.SetSequential(ctx, hash, inOrder)
 }
 
 func (s *Service) row(ctx context.Context, hash string) (db.Download, error) {

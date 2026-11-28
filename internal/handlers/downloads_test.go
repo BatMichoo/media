@@ -116,6 +116,44 @@ func TestPostStartNowAndAnyOrder(t *testing.T) {
 	assert.Equal(t, 404, w.Code)
 }
 
+func TestOrderToggle(t *testing.T) {
+	a := newApp(t)
+	a.dl.list = []downloads.Download{
+		live(downloads.Download{Hash: "a1", Title: "A", InOrder: true, Seeders: -1}),
+		live(downloads.Download{Hash: "b2", Title: "B", InOrder: false, Seeders: -1}),
+		live(downloads.Download{Hash: "c3", Title: "C", State: "filed", Seeders: -1}),
+	}
+	_, doc := a.get(t, "/downloads")
+	rows := doc.Find(".download")
+	on := rows.Eq(0).Find(".download-actions button.order")
+	require.Equal(t, 1, on.Length())
+	post, _ := on.Attr("hx-post")
+	assert.Equal(t, "/downloads/a1/any-order", post, "pressing turns it off")
+	pressed, _ := on.Attr("aria-pressed")
+	assert.Equal(t, "true", pressed)
+	assert.Contains(t, on.Text(), "In order")
+	off := rows.Eq(1).Find(".download-actions button.order")
+	post, _ = off.Attr("hx-post")
+	assert.Equal(t, "/downloads/b2/in-order", post)
+	pressed, _ = off.Attr("aria-pressed")
+	assert.Equal(t, "false", pressed)
+	assert.Equal(t, 0, rows.Eq(2).Find("button.order").Length(), "only while downloading")
+
+	_, bg := a.get(t, "/downloads", "Cookie", i18n.CookieName+"=bg")
+	assert.NotContains(t, bg.Find("button.order").First().Text(), "In order")
+}
+
+func TestPostInOrder(t *testing.T) {
+	a := newApp(t)
+	a.dl.list = []downloads.Download{{Hash: "a1", Kind: "movie", Title: "Dune", Year: 2021, State: "downloading"}}
+	w, doc := a.post(t, "/downloads/a1/in-order", url.Values{}, "HX-Request", "true")
+	assert.Equal(t, 200, w.Code)
+	assert.Equal(t, 1, doc.Find("#downloads-list").Length())
+	assert.Equal(t, []string{"in-order a1"}, a.dl.paused)
+	w, _ = a.post(t, "/downloads/zz/in-order", url.Values{}, "HX-Request", "true")
+	assert.Equal(t, 404, w.Code)
+}
+
 func TestTrackerErrorShownOnce(t *testing.T) {
 	a := newApp(t)
 	a.dl.list = []downloads.Download{live(downloads.Download{Hash: "a1", Title: "A", Stuck: "tracker",

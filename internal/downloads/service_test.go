@@ -1120,6 +1120,19 @@ func TestAnyOrder(t *testing.T) {
 	assert.ErrorIs(t, e.s.AnyOrder(ctx, "nope"), ErrNotFound)
 }
 
+func TestInOrderAgain(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	e.addMovie(t, "h1", "Dune", 2021)
+	e.t.set(transmission.Torrent{Hash: "h1", PercentDone: 0.3, Sequential: true})
+	require.NoError(t, e.s.AnyOrder(ctx, "h1"))
+	e.t.seq = nil
+	require.NoError(t, e.s.InOrder(ctx, "h1"))
+	assert.Equal(t, []string{"h1"}, e.t.seq)
+	assert.True(t, e.get(t, "h1").InOrder)
+	assert.ErrorIs(t, e.s.InOrder(ctx, "nope"), ErrNotFound)
+}
+
 func TestPollKeepsAnyOrder(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -1279,6 +1292,7 @@ func TestAnyOrderSavedEvenIfTransmissionFails(t *testing.T) {
 	e.t.seqErr = nil
 	require.NoError(t, e.s.Poll(ctx))
 	assert.Empty(t, e.t.seq)
+	assert.Equal(t, []string{"h1"}, e.t.seqOff, "the poll turns in-order off as saved")
 }
 
 func TestGet(t *testing.T) {
